@@ -356,6 +356,58 @@ protected:
 
 
 /**
+ * @brief Provides data to the Net from video files based on provided window file.
+ *
+ * TODO(dox): thorough documentation for Forward and proto params.
+ */
+template <typename Dtype>
+class VideoWindowDataLayer : public BasePrefetchingDataLayer<Dtype> {
+public:
+	explicit VideoWindowDataLayer(const LayerParameter& param)
+	: BasePrefetchingDataLayer<Dtype>(param) {}
+	virtual ~VideoWindowDataLayer();
+	virtual void DataLayerSetUp(const vector<Blob<Dtype>*>& bottom,
+			const vector<Blob<Dtype>*>& top);
+
+	virtual inline const char* type() const { return "VideoData"; }
+	virtual inline int ExactNumBottomBlobs() const { return 0; }
+	virtual int ExactNumTopBlobs() const;
+
+protected:
+	shared_ptr<Caffe::RNG> prefetch_rng_;
+	vector<std::pair<std::string, vector<float> > > video_database_;
+	enum WindowField { VIDEO_INDEX, LABEL, OVERLAP, START, END, NUM };
+	vector<vector<float> > fg_windows_;
+	vector<vector<float> > bg_windows_;
+	vector<std::pair<std::string, Datum > > video_database_cache_;
+
+	string name_pattern_;
+	string root_folder_;
+
+	float fg_thresh_;
+	float bg_thresh_;
+	float fg_fraction_;
+
+	virtual void InternalThreadEntry();
+	virtual unsigned int PrefetchRand();
+
+	vector<int> SampleSegments(const int start_frame, const int end_frame, const int context_pad,
+							   const int total_frame, const int num_segments, const int snippet_len,
+							   bool random_shift);
+
+#ifdef USE_MPI
+	inline virtual void advance_cursor(){
+		inline virtual void advance_cursor(){
+		PrefetchRand();
+		this->transform_param_.mirror() && PrefetchRand();
+	}
+	}
+#endif
+
+};
+
+
+/**
  * @brief Provides data to the Net from memory.
  *
  * TODO(dox): thorough documentation for Forward and proto params.

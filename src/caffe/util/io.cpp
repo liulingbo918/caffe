@@ -358,6 +358,70 @@ bool ReadSegmentRGBToDatum(const string& filename, const int label,
 	return true;
 }
 
+
+bool ReadSegmentRGBDiffToDatum(const string& filename, const int label,
+                           const vector<int> offsets, const int height, const int width, const int length, Datum* datum, bool is_color,
+                           const char* name_pattern ){
+    cv::Mat cv_img;
+    cv::Mat prev_img;
+    string* datum_string;
+    char tmp[30];
+    int cv_read_flag = (is_color ? CV_LOAD_IMAGE_COLOR :
+                        CV_LOAD_IMAGE_GRAYSCALE);
+    for (int i = 0; i < offsets.size(); ++i){
+        int offset = offsets[i];
+        for (int file_id = 1; file_id < length + 1 + 1; ++file_id){
+            sprintf(tmp, name_pattern, file_id+offset);
+            string filename_t = filename + "/" + tmp;
+            cv::Mat cv_img_origin = cv::imread(filename_t, cv_read_flag);
+            if (!cv_img_origin.data){
+                LOG(ERROR) << "Could not load file " << filename_t;
+                return false;
+            }
+            if (height > 0 && width > 0){
+                cv::resize(cv_img_origin, cv_img, cv::Size(width, height));
+            }else{
+                cv_img = cv_img_origin;
+            }
+            int num_channels = (is_color ? 3 : 1);
+            if (file_id==1 && i==0){
+                datum->set_channels(num_channels*length*offsets.size());
+                datum->set_height(cv_img.rows);
+                datum->set_width(cv_img.cols);
+                datum->set_label(label);
+                datum->clear_data();
+                datum->clear_float_data();
+                datum_string = datum->mutable_data();
+            }
+            if (file_id>1) {
+                if (is_color) {
+                    for (int c = 0; c < num_channels; ++c) {
+                        for (int h = 0; h < cv_img.rows; ++h) {
+                            for (int w = 0; w < cv_img.cols; ++w) {
+
+                                // we wrap the diff data to [0, 255] centered at 128
+                                float diff_val = (static_cast<float>(cv_img.at<cv::Vec3b>(h, w)[c])
+                                                 - static_cast<float>(prev_img.at<cv::Vec3b>(h, w)[c])) / 2 + 128;
+                                datum_string->push_back(static_cast<char>(diff_val));
+                            }
+                        }
+                    }
+                } else {  // Faster than repeatedly testing is_color for each pixel w/i loop
+                    for (int h = 0; h < cv_img.rows; ++h) {
+                        for (int w = 0; w < cv_img.cols; ++w) {
+                            float diff_val = (static_cast<float>(static_cast<char>(cv_img.at<uchar>(h, w)))
+                                              - static_cast<float>(static_cast<char>(cv_img.at<uchar>(h, w)))) / 2 + 128;
+                            datum_string->push_back(static_cast<char>(diff_val));
+                        }
+                    }
+                }
+            }
+            if (file_id < (length + 1 + 1)) cv_img.copyTo(prev_img);
+        }
+    }
+    return true;
+}
+
 bool ReadSegmentFlowToDatum(const string& filename, const int label,
     const vector<int> offsets, const int height, const int width, const int length, Datum* datum,
     const char* name_pattern ){

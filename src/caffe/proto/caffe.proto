@@ -277,7 +277,7 @@ message ParamSpec {
 // NOTE
 // Update the next available ID when you add a new LayerParameter field.
 //
-// LayerParameter next available layer-specific ID: 163 (last added: batch_reduction_param)
+// LayerParameter next available layer-specific ID: 164 (last added: video_window_data_param)
 message LayerParameter {
   optional string name = 1; // the layer name
   optional string type = 2; // the layer type
@@ -365,6 +365,7 @@ message LayerParameter {
   optional ScaleParameter scale_param = 160;
   optional BiasParameter bias_param = 161;
   optional BatchReductionParameter batch_reduction_param = 162;
+  optional VideoWindowDataParameter video_window_data_param = 163;
 }
 
 // Message that stores parameters used to apply transformation
@@ -1311,5 +1312,47 @@ message MemoryOptimizationParameter {
   // However, one can also claim a few blobs to be excluded.
   // This is rather helpful when extracting features from intermediate blobs or debugging problems.
   repeated string exclude_blob = 3;
+
+}
+
+message VideoWindowDataParameter {
+  // Specify the data source.
+  optional string source = 1;
+  // Specify the batch size.
+  optional uint32 batch_size = 2;
+  // Foreground (object) overlap threshold
+  optional float fg_threshold = 3 [default = 0.5];
+  // Background (non-object) overlap threshold
+  optional float bg_threshold = 4 [default = 0.5];
+  // Fraction of batch that should be foreground objects
+  optional float fg_fraction = 5 [default = 0.25];
+  // Amount of contextual padding to add around a window
+  // (used only by the window_data_layer)
+  optional uint32 context_pad = 6 [default = 0];
+  // append root_folder to locate images
+  optional string root_folder = 7 [default = ""];
+
+  // video specify params
+  // how many segments to extract from a window
+  optional uint32 num_segments = 8 [default = 1];
+  // sampling method of segments
+  optional string segment_mode = 9 [default = "uniform"];
+  // snippet length (for RGB/Diff/RGB)
+  optional uint32 snippet_length = 10 [default = 1];
+
+  enum Modality {
+      RGB = 0;
+      FLOW = 1;
+      DIFF = 2;
+  }
+  // modality of the input
+  optional Modality modality = 11 [default = RGB];
+
+  // name pattern of the frame files
+  optional string name_pattern = 12 [default = "img_%05d.jpg"];
+
+  // (optional) resize frame images before feeding
+  optional uint32 new_height = 13 [default = 0];
+  optional uint32 new_width = 14 [default = 0];
 
 }
