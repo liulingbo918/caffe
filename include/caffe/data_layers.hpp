@@ -379,6 +379,7 @@ protected:
 	enum WindowField { VIDEO_INDEX, LABEL, OVERLAP, START, END, NUM };
 	vector<vector<float> > fg_windows_;
 	vector<vector<float> > bg_windows_;
+	vector<vector<vector<float> > > gt_windows_;
 	vector<std::pair<std::string, Datum > > video_database_cache_;
 
 	string name_pattern_;
@@ -397,10 +398,8 @@ protected:
 
 #ifdef USE_MPI
 	inline virtual void advance_cursor(){
-		inline virtual void advance_cursor(){
 		PrefetchRand();
 		this->transform_param_.mirror() && PrefetchRand();
-	}
 	}
 #endif
 

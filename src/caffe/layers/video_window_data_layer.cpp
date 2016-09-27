@@ -97,13 +97,30 @@ void VideoWindowDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bot
         infile >> video_info[0] >> video_info[1];
         video_database_.push_back(std::make_pair(video_path, video_info));
 
+        int num_gt_windows;
+        infile >> num_gt_windows;
+        vector<vector<float> > video_gt_windows;
+        for (int i = 0; i < num_gt_windows; ++i){
+            int label;
+            float start_time, end_time;
+            infile >> label >> start_time >> end_time;
+            vector<float> window(VideoWindowDataLayer::NUM);
+            window[VideoWindowDataLayer::VIDEO_INDEX] = video_index;
+            window[VideoWindowDataLayer::LABEL] = label;
+            window[VideoWindowDataLayer::OVERLAP] = 1.0;
+            window[VideoWindowDataLayer::START] = start_time;
+            window[VideoWindowDataLayer::END] = end_time;
+            video_gt_windows.push_back(window);
+        }
+        gt_windows_.push_back(video_gt_windows);
+
         int num_windows;
         infile >> num_windows;
 
         for (int i = 0; i < num_windows; ++i){
             int label;
-            float overlap, start_time, end_time;
-            infile >> label >> overlap >> start_time >> end_time;
+            float overlap, overlap_self, start_time, end_time;
+            infile >> label >> overlap >> overlap_self>> start_time >> end_time;
 
             vector<float> window(VideoWindowDataLayer::NUM);
             window[VideoWindowDataLayer::VIDEO_INDEX] = video_index;
@@ -118,10 +135,10 @@ void VideoWindowDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bot
                 fg_windows_.push_back(window);
                 label_hist.insert(std::make_pair(label, 0));
                 label_hist[label]++;
-            }else{
+            }else if (overlap_self < bg_thresh_){
                 // background window
                 window[VideoWindowDataLayer::LABEL] = 0;
-                window[VideoWindowDataLayer::OVERLAP] = 0;
+                window[VideoWindowDataLayer::OVERLAP] = overlap_self;
                 bg_windows_.push_back(window);
                 label_hist[0]++;
             }
@@ -158,9 +175,10 @@ void VideoWindowDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bot
     const int snippet_len = this->layer_param_.video_window_data_param().snippet_length();
     const int channels =
             ((this->layer_param_.video_window_data_param().modality()
-             == VideoWindowDataParameter_Modality_FLOW) ? 1 : 3) * snippet_len * num_segments;
+             == VideoWindowDataParameter_Modality_FLOW) ? 1 : 3) * snippet_len * (num_segments + 2);
     top[0]->Reshape(batch_size, channels, crop_size, crop_size);
     this->prefetch_data_.Reshape(batch_size, channels, crop_size, crop_size);
+    this->transformed_data_.Reshape(1, channels, crop_size, crop_size);
 
     LOG(INFO) << "output data size: " << top[0]->num() << ","
     << top[0]->channels() << "," << top[0]->height() << ","
@@ -190,31 +208,42 @@ vector<int> VideoWindowDataLayer<Dtype>::
     int real_start_frame = std::max(0, start_frame);
     int real_end_frame = std::min(end_frame, total_frame);
 
-    int duration = real_start_frame - real_end_frame;
+    int duration = real_end_frame - real_start_frame;
+
+    CHECK_GT(duration, 0);
 
     int average_duration = duration / num_segments;
 
     vector<int> offsets;
 
+    offsets.push_back(0);
     for (int i = 0; i < num_segments; i++){
         if (random_shift){
             if (average_duration >= snippet_len){
-                int rand_idx = PrefetchRand();
+                const unsigned int rand_idx = PrefetchRand();
                 int offset = rand_idx % (average_duration - snippet_len + 1);
+                CHECK_GE(offset, 0);
                 offsets.push_back(offset + i*average_duration + real_start_frame);
-            } else {
+            } else if (duration > snippet_len) {
                 // randomly sample snippet from remaining slots if cannot uniformly span them
-                int rand_idx = PrefetchRand();
+                const unsigned int rand_idx = PrefetchRand();
                 int offset = rand_idx % (duration - snippet_len + 1);
+                CHECK_GE(offset, 0);
                 offsets.push_back(real_start_frame + offset);
+            } else {
+                LOG(FATAL)<<"Insufficient frames to build snippet, need :"<<snippet_len<<" got: "<<duration<<" window: "
+                        <<start_frame<<" -> "<<end_frame<<", duration: "<<total_frame;
             }
         }else{
             if (average_duration >= snippet_len)
                 offsets.push_back((average_duration-snippet_len+1)/2 + i*average_duration + real_start_frame);
-            else
+            else if (duration > snippet_len)
                 offsets.push_back(real_start_frame);
+            else
+                LOG(FATAL)<<"Insufficient frames to build snippet, need :"<<snippet_len<<" got: "<<duration;
         }
     }
+    offsets.push_back(duration-snippet_len);
     return offsets;
 }
 
@@ -258,8 +287,12 @@ void VideoWindowDataLayer<Dtype>::InternalThreadEntry(){
                                    fg_windows_[rand_index % fg_windows_.size()] :
                                    bg_windows_[rand_index % bg_windows_.size()];
 
+            int video_index = window[VideoWindowDataLayer::VIDEO_INDEX]-1;
+
             pair<string, vector<float> > video_info =
-                    video_database_[window[VideoWindowDataLayer::VIDEO_INDEX]];
+                    video_database_[video_index];
+
+            //std::cout<<video_info.first<<" "<<video_info.second[0]<<" "<<window[0]<<"\n";
 
             string video_path = video_info.first;
             const float fps = video_info.second[1];
@@ -267,6 +300,32 @@ void VideoWindowDataLayer<Dtype>::InternalThreadEntry(){
             const int start_frame = static_cast<int>(window[VideoWindowDataLayer::START] * fps);
             const int end_frame = static_cast<int>(window[VideoWindowDataLayer::END] * fps);
             const int label = window[VideoWindowDataLayer::LABEL];
+#if 0
+
+
+            if (is_fg){
+                LOG(INFO)<<"Foreground window. video_index: "<<window[VideoWindowDataLayer::VIDEO_INDEX]
+                    <<", total_frame: "<<total_frame
+                    <<", start_frame: "<<start_frame<<", end_frame:"<<end_frame
+                    <<", overlap: "<<window[VideoWindowDataLayer::OVERLAP];
+            }else{
+                LOG(INFO)<<"Background window. , video_index: "<<window[VideoWindowDataLayer::VIDEO_INDEX]
+                    <<", total_frame: "<<total_frame
+                    <<", start_frame: "<<start_frame<<", end_frame:"<<end_frame
+                    <<", overlap: "<<window[VideoWindowDataLayer::OVERLAP];
+            }
+
+            vector< vector<float> > video_gt_windows = gt_windows_[video_index];
+            LOG(INFO)<<"Video groundtruth windows:";
+            for (int gt_idx = 0; gt_idx < video_gt_windows.size(); ++gt_idx){
+                LOG(INFO)<<"\t"
+                    <<video_gt_windows[gt_idx][VideoWindowDataLayer::LABEL]
+                    <<" "<<video_gt_windows[gt_idx][VideoWindowDataLayer::START]
+                    <<" "<<video_gt_windows[gt_idx][VideoWindowDataLayer::END];
+            }
+#endif
+
+            CHECK_GT(end_frame, start_frame)<<"incorrect window in video path: "<<video_path;
 
             vector<int> offsets = this->SampleSegments(start_frame, end_frame, 0,
                                                        total_frame, num_segments,
@@ -299,7 +358,6 @@ void VideoWindowDataLayer<Dtype>::InternalThreadEntry(){
             this->transformed_data_.set_cpu_data(top_data + offset1);
             this->data_transformer_->Transform(datum, &(this->transformed_data_));
             top_label[item_id] = label;
-            trans_time += timer.MicroSeconds();
 
             item_id++;
         }
