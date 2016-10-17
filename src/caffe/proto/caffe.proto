@@ -1355,4 +1355,17 @@ message VideoWindowDataParameter {
   optional uint32 new_height = 13 [default = 0];
   optional uint32 new_width = 14 [default = 0];
 
+  optional bool merge_positive = 15 [default=false];
+
+  optional float min_bg_coverage = 16 [default=0];
+
+  optional bool boundary_frame = 17 [default=true];
+
+  enum Mode {
+    DET = 0;
+    CLS = 1;
+    PROP = 2;
+  }
+
+  optional Mode mode = 18 [default=DET];
 }

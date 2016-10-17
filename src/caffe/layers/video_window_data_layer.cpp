@@ -70,6 +70,13 @@ void VideoWindowDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bot
     bg_thresh_ = this->layer_param_.video_window_data_param().bg_threshold();
     fg_fraction_ = this->layer_param_.video_window_data_param().fg_fraction();
 
+    float min_bg_coverage = this->layer_param_.video_window_data_param().min_bg_coverage();
+
+    if (this->layer_param_.video_window_data_param().mode() == VideoWindowDataParameter_Mode_CLS){
+        fg_fraction_ = 1.0;
+        this->layer_param_.mutable_video_window_data_param()->set_boundary_frame(false);
+    }
+
     prefetch_rng_.reset(new Caffe::RNG(caffe_rng_rand()));
 
     std::ifstream infile(this->layer_param_.video_window_data_param().source().c_str());
@@ -106,16 +113,19 @@ void VideoWindowDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bot
             infile >> label >> start_time >> end_time;
             vector<float> window(VideoWindowDataLayer::NUM);
             window[VideoWindowDataLayer::VIDEO_INDEX] = video_index;
-            window[VideoWindowDataLayer::LABEL] = label;
+            window[VideoWindowDataLayer::LABEL] = label - 1;
             window[VideoWindowDataLayer::OVERLAP] = 1.0;
             window[VideoWindowDataLayer::START] = start_time;
             window[VideoWindowDataLayer::END] = end_time;
-            video_gt_windows.push_back(window);
+            if (end_time - start_time >= this->layer_param_.video_window_data_param().num_segments())
+                video_gt_windows.push_back(window);
         }
         gt_windows_.push_back(video_gt_windows);
+        flat_gt_windows_.insert(flat_gt_windows_.end(), video_gt_windows.begin(), video_gt_windows.end());
 
         int num_windows;
         infile >> num_windows;
+
 
         for (int i = 0; i < num_windows; ++i){
             int label;
@@ -129,13 +139,16 @@ void VideoWindowDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bot
             window[VideoWindowDataLayer::START] = start_time;
             window[VideoWindowDataLayer::END] = end_time;
 
+            float coverage = (end_time - start_time) / video_info[0];
+
+
             if (overlap >= fg_thresh_){
                 int chk_label = window[VideoWindowDataLayer::LABEL];
                 CHECK_GT(chk_label, 0);
                 fg_windows_.push_back(window);
                 label_hist.insert(std::make_pair(label, 0));
                 label_hist[label]++;
-            }else if (overlap_self < bg_thresh_){
+            }else if (overlap_self <= bg_thresh_ && coverage >= min_bg_coverage){
                 // background window
                 window[VideoWindowDataLayer::LABEL] = 0;
                 window[VideoWindowDataLayer::OVERLAP] = overlap_self;
@@ -174,8 +187,10 @@ void VideoWindowDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bot
 
     const int snippet_len = this->layer_param_.video_window_data_param().snippet_length();
     const int channels =
-            ((this->layer_param_.video_window_data_param().modality()
-             == VideoWindowDataParameter_Modality_FLOW) ? 1 : 3) * snippet_len * (num_segments + 2);
+            ((this->layer_param_.video_window_data_param().modality()== VideoWindowDataParameter_Modality_FLOW) ? 1 : 3)
+            * snippet_len
+            * (num_segments
+               + 2 * (this->layer_param_.video_window_data_param().boundary_frame()));
     top[0]->Reshape(batch_size, channels, crop_size, crop_size);
     this->prefetch_data_.Reshape(batch_size, channels, crop_size, crop_size);
     this->transformed_data_.Reshape(1, channels, crop_size, crop_size);
@@ -200,23 +215,23 @@ unsigned int VideoWindowDataLayer<Dtype>::PrefetchRand() {
 
 
 template <typename Dtype>
-vector<int> VideoWindowDataLayer<Dtype>::
-    SampleSegments( const int start_frame, const int end_frame, const int context_pad,
-                    const int total_frame, const int num_segments, const int snippet_len,
-                    const bool random_shift){
+vector<int> VideoWindowDataLayer<Dtype>::SampleSegments(
+        const int start_frame, const int end_frame, const int context_pad,
+        const int total_frame, const int num_segments, const int snippet_len,
+        const bool random_shift, const bool boundary_frame){
 
     int real_start_frame = std::max(0, start_frame);
     int real_end_frame = std::min(end_frame, total_frame);
 
     int duration = real_end_frame - real_start_frame;
 
-    CHECK_GT(duration, 0);
+    CHECK_GT(duration, 0)<<real_end_frame<<" "<<real_start_frame<<" "<<total_frame;
 
     int average_duration = duration / num_segments;
 
     vector<int> offsets;
 
-    offsets.push_back(0);
+    if (boundary_frame) offsets.push_back(real_start_frame);
     for (int i = 0; i < num_segments; i++){
         if (random_shift){
             if (average_duration >= snippet_len){
@@ -243,7 +258,7 @@ vector<int> VideoWindowDataLayer<Dtype>::
                 LOG(FATAL)<<"Insufficient frames to build snippet, need :"<<snippet_len<<" got: "<<duration;
         }
     }
-    offsets.push_back(duration-snippet_len);
+    if (boundary_frame) offsets.push_back(real_end_frame-snippet_len);
     return offsets;
 }
 
@@ -283,9 +298,20 @@ void VideoWindowDataLayer<Dtype>::InternalThreadEntry(){
             // sample a window
             timer.Start();
             const unsigned rand_index = PrefetchRand();
-            vector<float> window = (is_fg) ?
-                                   fg_windows_[rand_index % fg_windows_.size()] :
-                                   bg_windows_[rand_index % bg_windows_.size()];
+            vector<float> window;
+            switch (this->layer_param_.video_window_data_param().mode()){
+                case VideoWindowDataParameter_Mode_PROP:
+                case VideoWindowDataParameter_Mode_DET: {
+                    window = (is_fg) ?
+                             fg_windows_[rand_index % fg_windows_.size()] :
+                             bg_windows_[rand_index % bg_windows_.size()];
+                    break;
+                }
+                case VideoWindowDataParameter_Mode_CLS:{
+                    window = flat_gt_windows_[rand_index % flat_gt_windows_.size()];
+                    break;
+                }
+            }
 
             int video_index = window[VideoWindowDataLayer::VIDEO_INDEX]-1;
 
@@ -299,40 +325,18 @@ void VideoWindowDataLayer<Dtype>::InternalThreadEntry(){
             const int total_frame = static_cast<int>(video_info.second[0] * fps);
             const int start_frame = static_cast<int>(window[VideoWindowDataLayer::START] * fps);
             const int end_frame = static_cast<int>(window[VideoWindowDataLayer::END] * fps);
-            const int label = window[VideoWindowDataLayer::LABEL];
-#if 0
+            const int label = (this->layer_param_.video_window_data_param().merge_positive())
+                              ? is_fg : window[VideoWindowDataLayer::LABEL];
 
 
-            if (is_fg){
-                LOG(INFO)<<"Foreground window. video_index: "<<window[VideoWindowDataLayer::VIDEO_INDEX]
-                    <<", total_frame: "<<total_frame
-                    <<", start_frame: "<<start_frame<<", end_frame:"<<end_frame
-                    <<", overlap: "<<window[VideoWindowDataLayer::OVERLAP];
-            }else{
-                LOG(INFO)<<"Background window. , video_index: "<<window[VideoWindowDataLayer::VIDEO_INDEX]
-                    <<", total_frame: "<<total_frame
-                    <<", start_frame: "<<start_frame<<", end_frame:"<<end_frame
-                    <<", overlap: "<<window[VideoWindowDataLayer::OVERLAP];
-            }
-
-            vector< vector<float> > video_gt_windows = gt_windows_[video_index];
-            LOG(INFO)<<"Video groundtruth windows:";
-            for (int gt_idx = 0; gt_idx < video_gt_windows.size(); ++gt_idx){
-                LOG(INFO)<<"\t"
-                    <<video_gt_windows[gt_idx][VideoWindowDataLayer::LABEL]
-                    <<" "<<video_gt_windows[gt_idx][VideoWindowDataLayer::START]
-                    <<" "<<video_gt_windows[gt_idx][VideoWindowDataLayer::END];
-            }
-#endif
-
-            CHECK_GT(end_frame, start_frame)<<"incorrect window in video path: "<<video_path;
+            CHECK_GE(end_frame, start_frame)<<"incorrect window in video path: "<<video_path;
 
             vector<int> offsets = this->SampleSegments(start_frame, end_frame, 0,
                                                        total_frame, num_segments,
                                                        snippet_len
                                                        + (this->layer_param_.video_window_data_param().modality()
                                                                       == VideoWindowDataParameter_Modality_DIFF) ? 1 : 0, // diff needs one more
-                                                       this->phase_ == TRAIN);
+                                                       this->phase_ == TRAIN, this->layer_param_.video_window_data_param().boundary_frame());
 
             switch(this->layer_param_.video_window_data_param().modality()){
                 case VideoWindowDataParameter_Modality_FLOW:
@@ -359,7 +363,74 @@ void VideoWindowDataLayer<Dtype>::InternalThreadEntry(){
             this->data_transformer_->Transform(datum, &(this->transformed_data_));
             top_label[item_id] = label;
 
+
             item_id++;
+
+
+#if 0
+            if (is_fg){
+                LOG(INFO)<<"Foreground window. video_index: "<<window[VideoWindowDataLayer::VIDEO_INDEX]
+                <<", total_frame: "<<total_frame
+                <<", start_frame: "<<start_frame<<", end_frame:"<<end_frame
+                <<", overlap: "<<window[VideoWindowDataLayer::OVERLAP];
+            }else{
+                LOG(INFO)<<"Background window. , video_index: "<<window[VideoWindowDataLayer::VIDEO_INDEX]
+                <<", total_frame: "<<total_frame
+                <<", start_frame: "<<start_frame<<", end_frame:"<<end_frame
+                <<", overlap: "<<window[VideoWindowDataLayer::OVERLAP];
+            }
+
+            LOG(INFO)<<"Sampled frame indices:";
+            for (int fi = 0; fi < offsets.size(); ++fi) {
+                LOG(INFO) << "\t" << offsets[fi];
+            }
+
+
+            vector< vector<float> > video_gt_windows = gt_windows_[video_index];
+            LOG(INFO)<<"Video groundtruth windows:";
+            for (int gt_idx = 0; gt_idx < video_gt_windows.size(); ++gt_idx){
+                LOG(INFO)<<"\t"
+                <<video_gt_windows[gt_idx][VideoWindowDataLayer::LABEL]
+                <<" "<<video_gt_windows[gt_idx][VideoWindowDataLayer::START]
+                <<" "<<video_gt_windows[gt_idx][VideoWindowDataLayer::END];
+            }
+#endif
+
+#if 0
+            // write loaded frames to disk for debug
+            if (!is_fg) continue;
+            string base_path = "local/debug_frames/snippet_%d_frame_idx_%d_class_%d.jpg";
+            int l = 1;
+            char tmp[1024];
+            cv::Mat out_img;
+            const int crop_size = 224;
+            int img_size[3] = {crop_size, crop_size};
+            out_img.create(2, img_size, CV_8UC3);
+
+            size_t offset = crop_size * crop_size * 3;
+            const int mean_val[3] = {104, 117, 123};
+            for (int fi = 0; fi < l * (num_segments+2); ++fi){
+                int seg_idx = fi / l;
+                int frame_idx = offsets[seg_idx] + fi % (l);
+                sprintf(tmp, base_path.c_str(), seg_idx, frame_idx, label-1);
+
+
+                for (int c = 0; c < 3; ++c) {
+                    for (int h = 0; h < crop_size; ++h) {
+                        for (int w = 0; w < crop_size; ++w) {
+                            float v = top_data[offset1 + offset * fi + w + (h + c * crop_size) * crop_size] + mean_val[c];
+//                            LOG(INFO)<<"fi: "<<fi<<" c: "<<c<<" h: "<<h<<" w: "<<w;
+//                            LOG(INFO)<<int(v);
+                            cv::Vec3b& color = out_img.at<cv::Vec3b>(h, w);
+                            color[c] = static_cast<uint8_t>(v);
+                        }
+                    }
+                }
+
+                cv::imwrite(tmp, out_img);
+            }
+            exit(0);
+#endif
         }
     }
     batch_timer.Stop();

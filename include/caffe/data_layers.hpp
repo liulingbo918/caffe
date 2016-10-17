@@ -380,6 +380,7 @@ protected:
 	vector<vector<float> > fg_windows_;
 	vector<vector<float> > bg_windows_;
 	vector<vector<vector<float> > > gt_windows_;
+	vector<vector<float> > flat_gt_windows_;
 	vector<std::pair<std::string, Datum > > video_database_cache_;
 
 	string name_pattern_;
@@ -394,7 +395,7 @@ protected:
 
 	vector<int> SampleSegments(const int start_frame, const int end_frame, const int context_pad,
 							   const int total_frame, const int num_segments, const int snippet_len,
-							   bool random_shift);
+							   bool random_shift, const bool boundary_frame);
 
 #ifdef USE_MPI
 	inline virtual void advance_cursor(){
