@@ -77,6 +77,15 @@ void VideoWindowDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bot
         this->layer_param_.mutable_video_window_data_param()->set_boundary_frame(false);
     }
 
+    if (this->layer_param_.video_window_data_param().mode() == VideoWindowDataParameter_Mode_PROP){
+        this->layer_param_.mutable_video_window_data_param()->set_boundary_frame(true);
+    }
+
+    const int gt_label_offset =
+            (this->layer_param_.video_window_data_param().mode() == VideoWindowDataParameter_Mode_CLS)?
+            -1 : 0;
+
+
     prefetch_rng_.reset(new Caffe::RNG(caffe_rng_rand()));
 
     std::ifstream infile(this->layer_param_.video_window_data_param().source().c_str());
@@ -113,7 +122,7 @@ void VideoWindowDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bot
             infile >> label >> start_time >> end_time;
             vector<float> window(VideoWindowDataLayer::NUM);
             window[VideoWindowDataLayer::VIDEO_INDEX] = video_index;
-            window[VideoWindowDataLayer::LABEL] = label - 1;
+            window[VideoWindowDataLayer::LABEL] = label + gt_label_offset;
             window[VideoWindowDataLayer::OVERLAP] = 1.0;
             window[VideoWindowDataLayer::START] = start_time;
             window[VideoWindowDataLayer::END] = end_time;
@@ -231,7 +240,11 @@ vector<int> VideoWindowDataLayer<Dtype>::SampleSegments(
 
     vector<int> offsets;
 
-    if (boundary_frame) offsets.push_back(real_start_frame);
+    if (boundary_frame) {
+        int boundary_offset = PrefetchRand() % (average_duration - snippet_len + 1) - average_duration / 2;
+        int left_boundary_index = std::max(0, real_start_frame + boundary_offset);
+        offsets.push_back(left_boundary_index);
+    }
     for (int i = 0; i < num_segments; i++){
         if (random_shift){
             if (average_duration >= snippet_len){
@@ -258,7 +271,11 @@ vector<int> VideoWindowDataLayer<Dtype>::SampleSegments(
                 LOG(FATAL)<<"Insufficient frames to build snippet, need :"<<snippet_len<<" got: "<<duration;
         }
     }
-    if (boundary_frame) offsets.push_back(real_end_frame-snippet_len);
+    if (boundary_frame){
+        int boundary_offset = PrefetchRand() % (average_duration - snippet_len + 1) - average_duration / 2;
+        int right_boundary_index = std::min(real_end_frame + boundary_offset, total_frame);
+        offsets.push_back(right_boundary_index - snippet_len);
+    }
     return offsets;
 }
 
@@ -302,9 +319,15 @@ void VideoWindowDataLayer<Dtype>::InternalThreadEntry(){
             switch (this->layer_param_.video_window_data_param().mode()){
                 case VideoWindowDataParameter_Mode_PROP:
                 case VideoWindowDataParameter_Mode_DET: {
-                    window = (is_fg) ?
-                             fg_windows_[rand_index % fg_windows_.size()] :
-                             bg_windows_[rand_index % bg_windows_.size()];
+                    if (!is_fg){
+                        window = bg_windows_[rand_index % bg_windows_.size()];
+                    }else{
+                        if (this->layer_param_.video_window_data_param().gt_fg()) {
+                            window = flat_gt_windows_[rand_index % flat_gt_windows_.size()];
+                        }else{
+                            window = fg_windows_[rand_index % fg_windows_.size()];
+                        }
+                    }
                     break;
                 }
                 case VideoWindowDataParameter_Mode_CLS:{

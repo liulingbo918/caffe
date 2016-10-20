@@ -1368,4 +1368,5 @@ message VideoWindowDataParameter {
   }
 
   optional Mode mode = 18 [default=DET];
+  optional bool gt_fg = 19 [default=false];
 }
