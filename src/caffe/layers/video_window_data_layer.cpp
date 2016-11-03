@@ -78,7 +78,7 @@ void VideoWindowDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bot
     }
 
     if (this->layer_param_.video_window_data_param().mode() == VideoWindowDataParameter_Mode_PROP){
-        this->layer_param_.mutable_video_window_data_param()->set_boundary_frame(true);
+        this->layer_param_.mutable_video_window_data_param()->set_merge_positive(true);
     }
 
     const int gt_label_offset =
@@ -126,7 +126,7 @@ void VideoWindowDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bot
             window[VideoWindowDataLayer::OVERLAP] = 1.0;
             window[VideoWindowDataLayer::START] = start_time;
             window[VideoWindowDataLayer::END] = end_time;
-            if (end_time - start_time >= this->layer_param_.video_window_data_param().num_segments())
+            if (end_time - start_time > this->layer_param_.video_window_data_param().num_segments())
                 video_gt_windows.push_back(window);
         }
         gt_windows_.push_back(video_gt_windows);
@@ -150,7 +150,9 @@ void VideoWindowDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bot
 
             float coverage = (end_time - start_time) / video_info[0];
 
-
+            float real_end_time = std::min(video_info[0], end_time);
+            if (real_end_time - start_time <= this->layer_param_.video_window_data_param().snippet_length())
+                continue;
             if (overlap >= fg_thresh_){
                 int chk_label = window[VideoWindowDataLayer::LABEL];
                 CHECK_GT(chk_label, 0);
@@ -196,7 +198,7 @@ void VideoWindowDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bot
 
     const int snippet_len = this->layer_param_.video_window_data_param().snippet_length();
     const int channels =
-            ((this->layer_param_.video_window_data_param().modality()== VideoWindowDataParameter_Modality_FLOW) ? 1 : 3)
+            ((this->layer_param_.video_window_data_param().modality()== VideoWindowDataParameter_Modality_FLOW) ? 2 : 3)
             * snippet_len
             * (num_segments
                + 2 * (this->layer_param_.video_window_data_param().boundary_frame()));
@@ -252,7 +254,7 @@ vector<int> VideoWindowDataLayer<Dtype>::SampleSegments(
                 int offset = rand_idx % (average_duration - snippet_len + 1);
                 CHECK_GE(offset, 0);
                 offsets.push_back(offset + i*average_duration + real_start_frame);
-            } else if (duration > snippet_len) {
+            } else if (duration >= snippet_len) {
                 // randomly sample snippet from remaining slots if cannot uniformly span them
                 const unsigned int rand_idx = PrefetchRand();
                 int offset = rand_idx % (duration - snippet_len + 1);
@@ -263,13 +265,15 @@ vector<int> VideoWindowDataLayer<Dtype>::SampleSegments(
                         <<start_frame<<" -> "<<end_frame<<", duration: "<<total_frame;
             }
         }else{
-            if (average_duration >= snippet_len)
-                offsets.push_back((average_duration-snippet_len+1)/2 + i*average_duration + real_start_frame);
-            else if (duration > snippet_len)
+            if (average_duration >= snippet_len) {
+                offsets.push_back((average_duration - snippet_len) / 2 + i * average_duration + real_start_frame);
+            }
+            else if (duration >= snippet_len)
                 offsets.push_back(real_start_frame);
             else
                 LOG(FATAL)<<"Insufficient frames to build snippet, need :"<<snippet_len<<" got: "<<duration;
         }
+        //LOG(INFO)<<offsets.back()<<" "<<average_duration<<" "<<snippet_len;
     }
     if (boundary_frame){
         int boundary_offset = PrefetchRand() % (average_duration - snippet_len + 1) - average_duration / 2;
@@ -301,6 +305,8 @@ void VideoWindowDataLayer<Dtype>::InternalThreadEntry(){
     const int snippet_len = this->layer_param_.video_window_data_param().snippet_length();
     const int new_height = this->layer_param_.video_window_data_param().new_height();
     const int new_width = this->layer_param_.video_window_data_param().new_width();
+    const int is_diff = this->layer_param_.video_window_data_param().modality()
+                         == VideoWindowDataParameter_Modality_DIFF;
 
     // zero out batch
     caffe_set(this->prefetch_data_.count(), Dtype(0), top_data);
@@ -353,12 +359,9 @@ void VideoWindowDataLayer<Dtype>::InternalThreadEntry(){
 
 
             CHECK_GE(end_frame, start_frame)<<"incorrect window in video path: "<<video_path;
-
             vector<int> offsets = this->SampleSegments(start_frame, end_frame, 0,
                                                        total_frame, num_segments,
-                                                       snippet_len
-                                                       + (this->layer_param_.video_window_data_param().modality()
-                                                                      == VideoWindowDataParameter_Modality_DIFF) ? 1 : 0, // diff needs one more
+                                                       snippet_len + is_diff, // diff needs one more
                                                        this->phase_ == TRAIN, this->layer_param_.video_window_data_param().boundary_frame());
 
             switch(this->layer_param_.video_window_data_param().modality()){
