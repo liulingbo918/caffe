@@ -6,6 +6,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <boost/random/uniform_real.hpp>
 
 #include "opencv2/core/core.hpp"
 #include "opencv2/highgui/highgui.hpp"
@@ -210,9 +211,23 @@ void VideoWindowDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bot
     << top[0]->channels() << "," << top[0]->height() << ","
     << top[0]->width();
     // label
-    vector<int> label_shape(1, batch_size);
-    top[1]->Reshape(label_shape);
-    this->prefetch_label_.Reshape(label_shape);
+    if (this->layer_param_.video_window_data_param().mode() == VideoWindowDataParameter_Mode_PROP
+        && this->layer_param_.video_window_data_param().gt_fg()
+        && this->layer_param_.video_window_data_param().center_jitter_range() > 0){
+        const int shapes[] = {batch_size, 3};
+        vector<int> label_shape(shapes, shapes + 2);
+        top[1]->Reshape(label_shape);
+        this->prefetch_label_.Reshape(label_shape);
+        this->center_jitter_ = this->layer_param_.video_window_data_param().center_jitter_range();
+        this->length_jitter_ = this->layer_param_.video_window_data_param().length_jitter_range();
+        output_reg_targets_ = true;
+    }else{
+        vector<int> label_shape(1, batch_size);
+        top[1]->Reshape(label_shape);
+        this->prefetch_label_.Reshape(label_shape);
+        output_reg_targets_ = false;
+    }
+
 }
 
 
@@ -226,10 +241,18 @@ unsigned int VideoWindowDataLayer<Dtype>::PrefetchRand() {
 
 
 template <typename Dtype>
+float VideoWindowDataLayer<Dtype>::PrefetchFloatRand(float min, float max) {
+    unsigned int num = this->PrefetchRand();
+    return ((max-min) * (float(num) / RAND_MAX)) + min;
+}
+
+
+template <typename Dtype>
 vector<int> VideoWindowDataLayer<Dtype>::SampleSegments(
         const int start_frame, const int end_frame, const int context_pad,
         const int total_frame, const int num_segments, const int snippet_len,
-        const bool random_shift, const bool boundary_frame){
+        const bool random_shift, const bool boundary_frame,
+        float& center_move, float& length_change){
 
     int real_start_frame = std::max(0, start_frame);
     int real_end_frame = std::min(end_frame, total_frame);
@@ -237,6 +260,21 @@ vector<int> VideoWindowDataLayer<Dtype>::SampleSegments(
     int duration = real_end_frame - real_start_frame;
 
     CHECK_GT(duration, 0)<<real_end_frame<<" "<<real_start_frame<<" "<<total_frame;
+
+    if (center_move > 0){
+        int old_center = (real_end_frame + real_start_frame) / 2;
+        int center_move_frame = int(duration * center_move);
+        int new_center = center_move_frame + old_center;
+        int new_duration = int(duration * (1+length_change));
+        real_start_frame = std::max(0, new_center - new_duration / 2);
+        real_end_frame = std::min(total_frame, new_center + new_duration / 2);
+
+        length_change = float(duration ) / float(real_end_frame - real_start_frame) - float(1);
+        center_move = (old_center - float(real_end_frame + real_start_frame) / 2 ) / float(real_end_frame - real_start_frame);
+
+        // update duration
+        duration = (real_end_frame - real_start_frame);
+    }
 
     int average_duration = duration / num_segments;
 
@@ -322,8 +360,15 @@ void VideoWindowDataLayer<Dtype>::InternalThreadEntry(){
             timer.Start();
             const unsigned rand_index = PrefetchRand();
             vector<float> window;
+            float center_move = 0;
+            float length_change = 0;
             switch (this->layer_param_.video_window_data_param().mode()){
-                case VideoWindowDataParameter_Mode_PROP:
+                case VideoWindowDataParameter_Mode_PROP:{
+                    if (is_fg){
+                        center_move = PrefetchFloatRand(-this->center_jitter_, this->center_jitter_);
+                        length_change = PrefetchFloatRand(-this->length_jitter_, this->length_jitter_);
+                    }
+                }
                 case VideoWindowDataParameter_Mode_DET: {
                     if (!is_fg){
                         window = bg_windows_[rand_index % bg_windows_.size()];
@@ -362,7 +407,8 @@ void VideoWindowDataLayer<Dtype>::InternalThreadEntry(){
             vector<int> offsets = this->SampleSegments(start_frame, end_frame, 0,
                                                        total_frame, num_segments,
                                                        snippet_len + is_diff, // diff needs one more
-                                                       this->phase_ == TRAIN, this->layer_param_.video_window_data_param().boundary_frame());
+                                                       this->phase_ == TRAIN, this->layer_param_.video_window_data_param().boundary_frame(),
+                                                       center_move, length_change);
 
             switch(this->layer_param_.video_window_data_param().modality()){
                 case VideoWindowDataParameter_Modality_FLOW:
@@ -387,7 +433,13 @@ void VideoWindowDataLayer<Dtype>::InternalThreadEntry(){
             int offset1 = this->prefetch_data_.offset(item_id);
             this->transformed_data_.set_cpu_data(top_data + offset1);
             this->data_transformer_->Transform(datum, &(this->transformed_data_));
-            top_label[item_id] = label;
+            if (!this->output_reg_targets_) {
+                top_label[item_id] = label;
+            }else{
+                top_label[3 * item_id] = label;
+                top_label[3 * item_id + 1] = center_move;
+                top_label[3 * item_id + 2] = length_change;
+            }
 
 
             item_id++;

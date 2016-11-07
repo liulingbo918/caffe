@@ -1370,4 +1370,7 @@ message VideoWindowDataParameter {
 
   optional Mode mode = 18 [default=DET];
   optional bool gt_fg = 19 [default=false];
+
+  optional float center_jitter_range = 20 [default=0];
+  optional float length_jitter_range = 21 [default=0];
 }

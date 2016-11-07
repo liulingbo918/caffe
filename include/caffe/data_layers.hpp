@@ -390,12 +390,19 @@ protected:
 	float bg_thresh_;
 	float fg_fraction_;
 
+	float center_jitter_;
+	float length_jitter_;
+
+	bool output_reg_targets_;
+
 	virtual void InternalThreadEntry();
 	virtual unsigned int PrefetchRand();
+	float PrefetchFloatRand(float min, float max);
 
 	vector<int> SampleSegments(const int start_frame, const int end_frame, const int context_pad,
 							   const int total_frame, const int num_segments, const int snippet_len,
-							   bool random_shift, const bool boundary_frame);
+							   bool random_shift, const bool boundary_frame,
+							   float& center_move, float& length_change);
 
 #ifdef USE_MPI
 	inline virtual void advance_cursor(){
