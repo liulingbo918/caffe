@@ -376,7 +376,7 @@ public:
 protected:
 	shared_ptr<Caffe::RNG> prefetch_rng_;
 	vector<std::pair<std::string, vector<float> > > video_database_;
-	enum WindowField { VIDEO_INDEX, LABEL, OVERLAP, START, END, NUM };
+	enum WindowField { VIDEO_INDEX, LABEL, OVERLAP, START, END, OVERLAP_SELF, NUM };
 	vector<vector<float> > fg_windows_;
 	vector<vector<float> > bg_windows_;
 	vector<vector<vector<float> > > gt_windows_;
@@ -394,6 +394,7 @@ protected:
 	float length_jitter_;
 
 	bool output_reg_targets_;
+	bool output_completeness_;
 
 	virtual void InternalThreadEntry();
 	virtual unsigned int PrefetchRand();

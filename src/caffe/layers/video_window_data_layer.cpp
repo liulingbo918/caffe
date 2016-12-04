@@ -126,8 +126,9 @@ void VideoWindowDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bot
             window[VideoWindowDataLayer::LABEL] = label + gt_label_offset;
             window[VideoWindowDataLayer::OVERLAP] = 1.0;
             window[VideoWindowDataLayer::START] = start_time;
+            window[VideoWindowDataLayer::OVERLAP_SELF] = 1.0;
             window[VideoWindowDataLayer::END] = end_time;
-            if (end_time - start_time > this->layer_param_.video_window_data_param().num_segments())
+            if (end_time - start_time > std::max(this->layer_param_.video_window_data_param().snippet_length(), this->layer_param_.video_window_data_param().num_segments()))
                 video_gt_windows.push_back(window);
         }
         gt_windows_.push_back(video_gt_windows);
@@ -140,13 +141,15 @@ void VideoWindowDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bot
         for (int i = 0; i < num_windows; ++i){
             int label;
             float overlap, overlap_self, start_time, end_time;
-            infile >> label >> overlap >> overlap_self>> start_time >> end_time;
+            float m1, m2;
+            infile >> label >> overlap >> overlap_self>> start_time >> end_time; // >> m1 >> m2;
 
             vector<float> window(VideoWindowDataLayer::NUM);
             window[VideoWindowDataLayer::VIDEO_INDEX] = video_index;
             window[VideoWindowDataLayer::LABEL] = label;
             window[VideoWindowDataLayer::OVERLAP] = overlap;
             window[VideoWindowDataLayer::START] = start_time;
+            window[VideoWindowDataLayer::OVERLAP_SELF] = overlap_self;
             window[VideoWindowDataLayer::END] = end_time;
 
             float coverage = (end_time - start_time) / video_info[0];
@@ -221,7 +224,13 @@ void VideoWindowDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bot
         this->center_jitter_ = this->layer_param_.video_window_data_param().center_jitter_range();
         this->length_jitter_ = this->layer_param_.video_window_data_param().length_jitter_range();
         output_reg_targets_ = true;
-    }else{
+    } else if (this->layer_param_.video_window_data_param().mode() == VideoWindowDataParameter_Mode_DET_LOC){
+        const int shapes[] = {batch_size, 2};
+        vector<int> label_shape(shapes, shapes + 2);
+        top[1]->Reshape(label_shape);
+        this->prefetch_label_.Reshape(label_shape);
+        output_completeness_ = true;
+    } else {
         vector<int> label_shape(1, batch_size);
         top[1]->Reshape(label_shape);
         this->prefetch_label_.Reshape(label_shape);
@@ -362,6 +371,7 @@ void VideoWindowDataLayer<Dtype>::InternalThreadEntry(){
             vector<float> window;
             float center_move = 0;
             float length_change = 0;
+            float completeness = 0;
             switch (this->layer_param_.video_window_data_param().mode()){
                 case VideoWindowDataParameter_Mode_PROP:{
                     if (is_fg){
@@ -369,6 +379,7 @@ void VideoWindowDataLayer<Dtype>::InternalThreadEntry(){
                         length_change = PrefetchFloatRand(-this->length_jitter_, this->length_jitter_);
                     }
                 }
+                case VideoWindowDataParameter_Mode_DET_LOC:
                 case VideoWindowDataParameter_Mode_DET: {
                     if (!is_fg){
                         window = bg_windows_[rand_index % bg_windows_.size()];
@@ -385,6 +396,13 @@ void VideoWindowDataLayer<Dtype>::InternalThreadEntry(){
                     window = flat_gt_windows_[rand_index % flat_gt_windows_.size()];
                     break;
                 }
+            }
+
+            if (is_fg && this->layer_param_.video_window_data_param().mode() == VideoWindowDataParameter_Mode_DET_LOC){
+                float o = window[OVERLAP];
+                float os = window[OVERLAP_SELF];
+                float rate = (std::abs(os - o) < 0.0001)? (1 / o) : (os * o) / (os - o);
+                completeness = (rate - 1) / (1 + rate);
             }
 
             int video_index = window[VideoWindowDataLayer::VIDEO_INDEX]-1;
@@ -433,12 +451,18 @@ void VideoWindowDataLayer<Dtype>::InternalThreadEntry(){
             int offset1 = this->prefetch_data_.offset(item_id);
             this->transformed_data_.set_cpu_data(top_data + offset1);
             this->data_transformer_->Transform(datum, &(this->transformed_data_));
-            if (!this->output_reg_targets_) {
-                top_label[item_id] = label;
-            }else{
-                top_label[3 * item_id] = label;
-                top_label[3 * item_id + 1] = center_move;
-                top_label[3 * item_id + 2] = length_change;
+
+            int label_step = 1
+                             + ((this->output_reg_targets_) ?  2 : 0)
+                             + ((this->output_completeness_) ? 1 : 0);
+            int label_offset = 0;
+            top_label[item_id * label_step + label_offset++] = label;
+            if (this->output_reg_targets_){
+                top_label[item_id * label_step + label_offset++] = center_move;
+                top_label[item_id * label_step + label_offset++] = length_change;
+            }
+            if (this->output_completeness_){
+                top_label[item_id * label_step + label_offset++] = completeness;
             }
 
 

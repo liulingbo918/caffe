@@ -1366,6 +1366,7 @@ message VideoWindowDataParameter {
     DET = 0;
     CLS = 1;
     PROP = 2;
+    DET_LOC = 3;
   }
 
   optional Mode mode = 18 [default=DET];
