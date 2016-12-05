@@ -369,7 +369,7 @@ public:
 	virtual void DataLayerSetUp(const vector<Blob<Dtype>*>& bottom,
 			const vector<Blob<Dtype>*>& top);
 
-	virtual inline const char* type() const { return "VideoData"; }
+	virtual inline const char* type() const { return "VideoWindowData"; }
 	virtual inline int ExactNumBottomBlobs() const { return 0; }
 	virtual int ExactNumTopBlobs() const;
 
