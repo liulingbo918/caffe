@@ -314,7 +314,10 @@ bool ReadSegmentRGBToDatum(const string& filename, const int label,
 	for (int i = 0; i < offsets.size(); ++i){
 		int offset = offsets[i];
 		for (int file_id = 1; file_id < length+1; ++file_id){
-			sprintf(tmp, name_pattern, int(file_id+offset));
+                        if (offset==-1)
+			    sprintf(tmp, name_pattern, 1);
+                        else
+			    sprintf(tmp, name_pattern, int(file_id+offset));
 			string filename_t = filename + "/" + tmp;
 			cv::Mat cv_img_origin = cv::imread(filename_t, cv_read_flag);
 			if (!cv_img_origin.data){
@@ -340,16 +343,24 @@ bool ReadSegmentRGBToDatum(const string& filename, const int label,
 			    for (int c = 0; c < num_channels; ++c) {
 			      for (int h = 0; h < cv_img.rows; ++h) {
 			        for (int w = 0; w < cv_img.cols; ++w) {
-			          datum_string->push_back(
-			            static_cast<char>(cv_img.at<cv::Vec3b>(h, w)[c]));
+                                  if (offset==-1)
+			            datum_string->push_back(
+			                static_cast<char>(0));
+                                  else
+			            datum_string->push_back(
+			                static_cast<char>(cv_img.at<cv::Vec3b>(h, w)[c]));
 			        }
 			      }
 			    }
 			  } else {  // Faster than repeatedly testing is_color for each pixel w/i loop
 			    for (int h = 0; h < cv_img.rows; ++h) {
 			      for (int w = 0; w < cv_img.cols; ++w) {
-			        datum_string->push_back(
-			          static_cast<char>(cv_img.at<uchar>(h, w)));
+                                  if (offset==-1)
+			            datum_string->push_back(
+			              static_cast<char>(0));
+                                  else
+			            datum_string->push_back(
+			              static_cast<char>(cv_img.at<uchar>(h, w)));
 			        }
 			      }
 			  }

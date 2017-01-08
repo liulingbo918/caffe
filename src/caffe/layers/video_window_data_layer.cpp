@@ -62,7 +62,13 @@ void VideoWindowDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bot
         << " root_folder: "
         << this->layer_param_.video_window_data_param().root_folder() << std::endl
         << " name_pattern: "
-        << this->layer_param_.video_window_data_param().name_pattern() << std::endl;
+        << this->layer_param_.video_window_data_param().name_pattern() << std::endl 
+        << " incomplete sample overlap threshold: "
+        << this->layer_param_.video_window_data_param().incomplete_overlap_threshold() << std::endl
+        << " incomplete sample overlap with itself threshold: "
+        << this->layer_param_.video_window_data_param().incomplete_overlap_self_threshold() << std::endl
+        << " incomplete sampling fraction: "
+        << this->layer_param_.video_window_data_param().incomplete_fraction() << std::endl;
 
     root_folder_ = this->layer_param_.video_window_data_param().root_folder();
     name_pattern_ = this->layer_param_.video_window_data_param().name_pattern();
@@ -70,6 +76,10 @@ void VideoWindowDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bot
     fg_thresh_ = this->layer_param_.video_window_data_param().fg_threshold();
     bg_thresh_ = this->layer_param_.video_window_data_param().bg_threshold();
     fg_fraction_ = this->layer_param_.video_window_data_param().fg_fraction();
+
+    incomplete_overlap_threshold_ = this->layer_param_.video_window_data_param().incomplete_overlap_threshold();
+    incomplete_overlap_self_threshold_ = this->layer_param_.video_window_data_param().incomplete_overlap_self_threshold();
+    incomplete_fraction_ = this->layer_param_.video_window_data_param().incomplete_fraction();
 
     float min_bg_coverage = this->layer_param_.video_window_data_param().min_bg_coverage();
 
@@ -94,6 +104,7 @@ void VideoWindowDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bot
         << this->layer_param_.video_window_data_param().source() << std::endl;
 
     map<int, int> label_hist;
+    map<int, int> incomplete_hist;
     label_hist.insert(std::make_pair(0, 0));
 
     int video_index;
@@ -163,7 +174,13 @@ void VideoWindowDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bot
                 fg_windows_.push_back(window);
                 label_hist.insert(std::make_pair(label, 0));
                 label_hist[label]++;
-            }else if (overlap_self <= bg_thresh_ && coverage >= min_bg_coverage){
+            } else if (overlap <= incomplete_overlap_threshold_ && overlap_self >= incomplete_overlap_self_threshold_) {
+                int chk_label = window[VideoWindowDataLayer::LABEL];
+                CHECK_GT(chk_label, 0);
+                incomplete_windows_.push_back(window);
+                incomplete_hist.insert(std::make_pair(label, 0));
+                incomplete_hist[label]++;
+            } else if (overlap_self <= bg_thresh_ && coverage >= min_bg_coverage){
                 // background window
                 window[VideoWindowDataLayer::LABEL] = 0;
                 window[VideoWindowDataLayer::OVERLAP] = overlap_self;
@@ -188,7 +205,11 @@ void VideoWindowDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bot
 
     for (map<int, int>::iterator it = label_hist.begin(); it != label_hist.end(); ++it){
         LOG(INFO) <<" class "<<it->first
-            << " has "<<label_hist[it->first]<<" samples";
+            << " has "<<label_hist[it->first]<<" positive samples";
+    }
+    for (map<int, int>::iterator it = incomplete_hist.begin(); it != incomplete_hist.end(); ++it) {
+        LOG(INFO) << " class "<< it-> first
+            << " has " << incomplete_hist[it->first] << " incomplete samples";
     }
 
     LOG(INFO) << "Segment sampling mode: "
@@ -199,12 +220,14 @@ void VideoWindowDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bot
     CHECK_GT(crop_size, 0);
     const int batch_size = this->layer_param_.video_window_data_param().batch_size();
     const int num_segments = this->layer_param_.video_window_data_param().num_segments();
+    const int num_segments_side = this->layer_param_.video_window_data_param().num_segments_side();
 
     const int snippet_len = this->layer_param_.video_window_data_param().snippet_length();
     const int channels =
-            ((this->layer_param_.video_window_data_param().modality()== VideoWindowDataParameter_Modality_FLOW) ? 2 : 3)
+            ((this->layer_param_.video_window_data_param().modality() == VideoWindowDataParameter_Modality_FLOW) ? 2 : 3)
             * snippet_len
-            * (num_segments
+            * (((this->layer_param_.video_window_data_param().mode() == VideoWindowDataParameter_Mode_DET_JOINT) ? 
+               (num_segments+num_segments_side*2) : num_segments)
                + 2 * (this->layer_param_.video_window_data_param().boundary_frame()));
     top[0]->Reshape(batch_size, channels, crop_size, crop_size);
     this->prefetch_data_.Reshape(batch_size, channels, crop_size, crop_size);
@@ -214,6 +237,9 @@ void VideoWindowDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bot
     << top[0]->channels() << "," << top[0]->height() << ","
     << top[0]->width();
     // label
+    output_reg_targets_ = false;
+    output_completeness_ = false;
+    output_completeness_pad_ = false;
     if (this->layer_param_.video_window_data_param().mode() == VideoWindowDataParameter_Mode_PROP
         && this->layer_param_.video_window_data_param().gt_fg()
         && this->layer_param_.video_window_data_param().center_jitter_range() > 0){
@@ -230,6 +256,12 @@ void VideoWindowDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bot
         top[1]->Reshape(label_shape);
         this->prefetch_label_.Reshape(label_shape);
         output_completeness_ = true;
+    } else if (this->layer_param_.video_window_data_param().mode() == VideoWindowDataParameter_Mode_DET_JOINT) {
+        const int shapes[] = {batch_size, 4};
+        vector<int> label_shape(shapes, shapes + 2);
+        top[1]->Reshape(label_shape);
+        this->prefetch_label_.Reshape(label_shape);
+        output_completeness_pad_ = true;
     } else {
         vector<int> label_shape(1, batch_size);
         top[1]->Reshape(label_shape);
@@ -349,21 +381,28 @@ void VideoWindowDataLayer<Dtype>::InternalThreadEntry(){
     Dtype *top_label = this->prefetch_label_.mutable_cpu_data();
     const int batch_size = this->layer_param_.video_window_data_param().batch_size();
     const int num_segments = this->layer_param_.video_window_data_param().num_segments();
+    const int num_segments_side = this->layer_param_.video_window_data_param().num_segments_side();
     const int snippet_len = this->layer_param_.video_window_data_param().snippet_length();
     const int new_height = this->layer_param_.video_window_data_param().new_height();
     const int new_width = this->layer_param_.video_window_data_param().new_width();
     const int is_diff = this->layer_param_.video_window_data_param().modality()
                          == VideoWindowDataParameter_Modality_DIFF;
+    const float side_interval = this->layer_param_.video_window_data_param().side_interval();
+    int pad_ante = 0;
+    int pad_post = 0;
 
     // zero out batch
     caffe_set(this->prefetch_data_.count(), Dtype(0), top_data);
 
     const int num_fg = static_cast<int>(static_cast<float>(batch_size) * fg_fraction_);
-    const int num_samples[2] = {batch_size - num_fg, num_fg};
+    const int num_incomplete = static_cast<int>(static_cast<float>(batch_size) * incomplete_fraction_);
+    const int num_samples[3] = {batch_size - num_fg - num_incomplete, num_fg, num_incomplete};
 
     int item_id = 0;
-    // first, sample background, then foreground
-    for (int is_fg = 0; is_fg < 2; ++is_fg){
+    // first, sample background, then foreground (, then incomplete samples)
+    int num_types = (this->layer_param_.video_window_data_param().mode() == VideoWindowDataParameter_Mode_DET_JOINT)
+        ? 3 : 2;
+    for (int is_fg = 0; is_fg < num_types; ++is_fg){
         for (int sample_idx = 0; sample_idx < num_samples[is_fg]; ++sample_idx){
             // sample a window
             timer.Start();
@@ -378,6 +417,30 @@ void VideoWindowDataLayer<Dtype>::InternalThreadEntry(){
                         center_move = PrefetchFloatRand(-this->center_jitter_, this->center_jitter_);
                         length_change = PrefetchFloatRand(-this->length_jitter_, this->length_jitter_);
                     }
+                }
+                case VideoWindowDataParameter_Mode_DET_JOINT: {
+                    switch (is_fg) {
+                        case 0: {
+                            window = bg_windows_[rand_index % bg_windows_.size()];
+                            completeness = 0;
+                            break;
+                        }
+                        case 1: {
+                            if (this->layer_param_.video_window_data_param().gt_fg()) {
+                                window = flat_gt_windows_[rand_index % flat_gt_windows_.size()];
+                            }else{
+                                window = fg_windows_[rand_index % fg_windows_.size()];
+                            }
+                            completeness = window[VideoWindowDataLayer::LABEL];
+                            break;
+                        }
+                        case 2: {
+                            window = incomplete_windows_[rand_index % incomplete_windows_.size()];
+                            completeness = 0;
+                            break;
+                        }
+                    }
+                    break;
                 }
                 case VideoWindowDataParameter_Mode_DET_LOC:
                 case VideoWindowDataParameter_Mode_DET: {
@@ -428,6 +491,41 @@ void VideoWindowDataLayer<Dtype>::InternalThreadEntry(){
                                                        this->phase_ == TRAIN, this->layer_param_.video_window_data_param().boundary_frame(),
                                                        center_move, length_change);
 
+            if (this->output_completeness_pad_) {
+                int duration = end_frame - start_frame;
+                int start_start = start_frame - static_cast<int>(static_cast<float>(duration) * side_interval);
+                start_start = (start_start > 0) ? start_start : 0;
+                int end_end = end_frame + static_cast<int>(static_cast<float>(duration) * side_interval);
+                end_end = (end_end < total_frame) ? end_end : total_frame - 1;
+                if (start_start < start_frame) {
+                    vector<int> offsets_1 = this->SampleSegments(start_start, start_frame, 0,
+                                                                 total_frame, num_segments_side,
+                                                                 snippet_len + is_diff,
+                                                                 this->phase_ == TRAIN,
+                                                                 this->layer_param_.video_window_data_param().boundary_frame(),
+                                                                 center_move, length_change);
+                    offsets.insert(offsets.begin(), offsets_1.begin(), offsets_1.end());
+                } else {
+                    vector<int> offsets_1(num_segments_side, -1);
+                    pad_ante = num_segments_side;
+                    offsets.insert(offsets.begin(), offsets_1.begin(), offsets_1.end());
+                }
+                if (end_frame < end_end) {
+                    vector<int> offsets_2 = this->SampleSegments(end_frame, end_end, 0,
+                                                                 total_frame, num_segments_side,
+                                                                 snippet_len + is_diff,
+                                                                 this->phase_ == TRAIN,
+                                                                 this->layer_param_.video_window_data_param().boundary_frame(),
+                                                                 center_move, length_change);
+                    offsets.insert(offsets.end(), offsets_2.begin(), offsets_2.end());
+                } else {
+                    vector<int> offsets_2(num_segments_side, -1);
+                    pad_post = num_segments_side;
+                    offsets.insert(offsets.end(), offsets_2.begin(), offsets_2.end());
+                }
+            } 
+            
+
             switch(this->layer_param_.video_window_data_param().modality()){
                 case VideoWindowDataParameter_Modality_FLOW:
                     ReadSegmentFlowToDatum(video_path, label,
@@ -445,6 +543,7 @@ void VideoWindowDataLayer<Dtype>::InternalThreadEntry(){
                                           &datum, true, name_pattern_.c_str());
                     break;
             };
+
             read_time += timer.MicroSeconds();
             timer.Start();
 
@@ -454,7 +553,8 @@ void VideoWindowDataLayer<Dtype>::InternalThreadEntry(){
 
             int label_step = 1
                              + ((this->output_reg_targets_) ?  2 : 0)
-                             + ((this->output_completeness_) ? 1 : 0);
+                             + ((this->output_completeness_) ? 1 : 0)
+                             + ((this->output_completeness_pad_) ? 3 : 0);
             int label_offset = 0;
             top_label[item_id * label_step + label_offset++] = label;
             if (this->output_reg_targets_){
@@ -464,8 +564,11 @@ void VideoWindowDataLayer<Dtype>::InternalThreadEntry(){
             if (this->output_completeness_){
                 top_label[item_id * label_step + label_offset++] = completeness;
             }
-
-
+            if (this->output_completeness_pad_){
+                top_label[item_id * label_step + label_offset++] = completeness;
+                top_label[item_id * label_step + label_offset++] = pad_ante;
+                top_label[item_id * label_step + label_offset++] = pad_post;
+            }
             item_id++;
 
 

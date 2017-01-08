@@ -1367,6 +1367,7 @@ message VideoWindowDataParameter {
     CLS = 1;
     PROP = 2;
     DET_LOC = 3;
+    DET_JOINT = 4;
   }
 
   optional Mode mode = 18 [default=DET];
@@ -1374,4 +1375,10 @@ message VideoWindowDataParameter {
 
   optional float center_jitter_range = 20 [default=0];
   optional float length_jitter_range = 21 [default=0];
+
+  optional float incomplete_overlap_threshold = 22 [default=0];
+  optional float incomplete_overlap_self_threshold = 23 [default=0];
+  optional float incomplete_fraction = 24 [default=0];
+  optional uint32 num_segments_side = 25 [default=0];
+  optional float side_interval = 26 [default=0];
 }

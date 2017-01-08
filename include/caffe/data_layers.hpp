@@ -379,6 +379,7 @@ protected:
 	enum WindowField { VIDEO_INDEX, LABEL, OVERLAP, START, END, OVERLAP_SELF, NUM };
 	vector<vector<float> > fg_windows_;
 	vector<vector<float> > bg_windows_;
+        vector<vector<float> > incomplete_windows_;
 	vector<vector<vector<float> > > gt_windows_;
 	vector<vector<float> > flat_gt_windows_;
 	vector<std::pair<std::string, Datum > > video_database_cache_;
@@ -390,11 +391,16 @@ protected:
 	float bg_thresh_;
 	float fg_fraction_;
 
+        float incomplete_overlap_threshold_;
+        float incomplete_overlap_self_threshold_;
+        float incomplete_fraction_;
+
 	float center_jitter_;
 	float length_jitter_;
 
 	bool output_reg_targets_;
 	bool output_completeness_;
+        bool output_completeness_pad_;
 
 	virtual void InternalThreadEntry();
 	virtual unsigned int PrefetchRand();
