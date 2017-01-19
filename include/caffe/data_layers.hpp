@@ -354,6 +354,47 @@ protected:
 	string name_pattern_;
 };
 
+/**
+ * @brief Provides data to the Net from video files.
+ *
+ * TODO(dox): thorough documentation for Forward and proto params.
+ */
+template <typename Dtype>
+class SegDataLayer : public BasePrefetchingDataLayer<Dtype> {
+ public:
+  explicit SegDataLayer(const LayerParameter& param)
+		  : BasePrefetchingDataLayer<Dtype>(param) {}
+  virtual ~SegDataLayer();
+  virtual void DataLayerSetUp(const vector<Blob<Dtype>*>& bottom,
+							  const vector<Blob<Dtype>*>& top);
+
+  virtual inline const char* type() const { return "SegData"; }
+  virtual inline int ExactNumBottomBlobs() const { return 0; }
+  virtual inline int ExactNumTopBlobs() const { return 2; }
+
+ protected:
+  shared_ptr<Caffe::RNG> prefetch_rng_;
+  virtual void ShuffleImages();
+  virtual void InternalThreadEntry();
+
+#ifdef USE_MPI
+  inline virtual void advance_cursor(){
+		lines_id_++;
+		if (lines_id_ >= lines_.size()) {
+			// We have reached the end. Restart from the first.
+			DLOG(INFO) << "Restarting data prefetching from start.";
+			lines_id_ = 0;
+			if (this->layer_param_.seg_data_param().shuffle()) {
+				ShuffleImages();
+			}
+		}
+	}
+#endif
+
+  vector<std::pair<std::string, std::string> > lines_;
+  int lines_id_;
+  string name_pattern_;
+};
 
 /**
  * @brief Provides data to the Net from video files based on provided window file.
@@ -362,51 +403,51 @@ protected:
  */
 template <typename Dtype>
 class VideoWindowDataLayer : public BasePrefetchingDataLayer<Dtype> {
-public:
-	explicit VideoWindowDataLayer(const LayerParameter& param)
-	: BasePrefetchingDataLayer<Dtype>(param) {}
-	virtual ~VideoWindowDataLayer();
-	virtual void DataLayerSetUp(const vector<Blob<Dtype>*>& bottom,
-			const vector<Blob<Dtype>*>& top);
+ public:
+  explicit VideoWindowDataLayer(const LayerParameter& param)
+		  : BasePrefetchingDataLayer<Dtype>(param) {}
+  virtual ~VideoWindowDataLayer();
+  virtual void DataLayerSetUp(const vector<Blob<Dtype>*>& bottom,
+							  const vector<Blob<Dtype>*>& top);
 
-	virtual inline const char* type() const { return "VideoWindowData"; }
-	virtual inline int ExactNumBottomBlobs() const { return 0; }
-	virtual int ExactNumTopBlobs() const;
+  virtual inline const char* type() const { return "VideoWindowData"; }
+  virtual inline int ExactNumBottomBlobs() const { return 0; }
+  virtual int ExactNumTopBlobs() const;
 
-protected:
-	shared_ptr<Caffe::RNG> prefetch_rng_;
-	vector<std::pair<std::string, vector<float> > > video_database_;
-	enum WindowField { VIDEO_INDEX, LABEL, OVERLAP, START, END, OVERLAP_SELF, NUM };
-	vector<vector<float> > fg_windows_;
-	vector<vector<float> > bg_windows_;
-	vector<vector<vector<float> > > gt_windows_;
-	vector<vector<float> > flat_gt_windows_;
-	vector<std::pair<std::string, Datum > > video_database_cache_;
+ protected:
+  shared_ptr<Caffe::RNG> prefetch_rng_;
+  vector<std::pair<std::string, vector<float> > > video_database_;
+  enum WindowField { VIDEO_INDEX, LABEL, OVERLAP, START, END, OVERLAP_SELF, NUM };
+  vector<vector<float> > fg_windows_;
+  vector<vector<float> > bg_windows_;
+  vector<vector<vector<float> > > gt_windows_;
+  vector<vector<float> > flat_gt_windows_;
+  vector<std::pair<std::string, Datum > > video_database_cache_;
 
-	string name_pattern_;
-	string root_folder_;
+  string name_pattern_;
+  string root_folder_;
 
-	float fg_thresh_;
-	float bg_thresh_;
-	float fg_fraction_;
+  float fg_thresh_;
+  float bg_thresh_;
+  float fg_fraction_;
 
-	float center_jitter_;
-	float length_jitter_;
+  float center_jitter_;
+  float length_jitter_;
 
-	bool output_reg_targets_;
-	bool output_completeness_;
+  bool output_reg_targets_;
+  bool output_completeness_;
 
-	virtual void InternalThreadEntry();
-	virtual unsigned int PrefetchRand();
-	float PrefetchFloatRand(float min, float max);
+  virtual void InternalThreadEntry();
+  virtual unsigned int PrefetchRand();
+  float PrefetchFloatRand(float min, float max);
 
-	vector<int> SampleSegments(const int start_frame, const int end_frame, const int context_pad,
-							   const int total_frame, const int num_segments, const int snippet_len,
-							   bool random_shift, const bool boundary_frame,
-							   float& center_move, float& length_change);
+  vector<int> SampleSegments(const int start_frame, const int end_frame, const int context_pad,
+							 const int total_frame, const int num_segments, const int snippet_len,
+							 bool random_shift, const bool boundary_frame,
+							 float& center_move, float& length_change);
 
 #ifdef USE_MPI
-	inline virtual void advance_cursor(){
+  inline virtual void advance_cursor(){
 		PrefetchRand();
 		this->transform_param_.mirror() && PrefetchRand();
 	}
