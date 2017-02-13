@@ -148,7 +148,9 @@ void VideoWindowDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bot
         int num_windows;
         infile >> num_windows;
 
-
+        vector<vector<float> > fg_windows;
+        vector<vector<float> > bg_windows;
+        vector<vector<float> > incomplete_windows;
         for (int i = 0; i < num_windows; ++i){
             int label;
             float overlap, overlap_self, start_time, end_time;
@@ -172,12 +174,14 @@ void VideoWindowDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bot
                 int chk_label = window[VideoWindowDataLayer::LABEL];
                 CHECK_GT(chk_label, 0);
                 fg_windows_.push_back(window);
+                fg_windows.push_back(window);
                 label_hist.insert(std::make_pair(label, 0));
                 label_hist[label]++;
             } else if (overlap <= incomplete_overlap_threshold_ && overlap_self >= incomplete_overlap_self_threshold_) {
                 int chk_label = window[VideoWindowDataLayer::LABEL];
                 CHECK_GT(chk_label, 0);
                 incomplete_windows_.push_back(window);
+                incomplete_windows.push_back(window);
                 incomplete_hist.insert(std::make_pair(label, 0));
                 incomplete_hist[label]++;
             } else if (overlap_self <= bg_thresh_ && coverage >= min_bg_coverage){
@@ -185,9 +189,16 @@ void VideoWindowDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bot
                 window[VideoWindowDataLayer::LABEL] = 0;
                 window[VideoWindowDataLayer::OVERLAP] = overlap_self;
                 bg_windows_.push_back(window);
+                bg_windows.push_back(window);
                 label_hist[0]++;
             }
         }
+        //CHECK_GT(fg_windows.size(), 0);
+        //CHECK_GT(bg_windows.size(), 0);
+        //CHECK_GT(incomplete_windows.size(), 0);
+        fg_windows_by_vid_.push_back(fg_windows);
+        bg_windows_by_vid_.push_back(bg_windows);
+        incomplete_windows_by_vid_.push_back(incomplete_windows);
 
         if (video_index % 1000 == 0){
             LOG(INFO) << " num: "<<video_index<<" "<<video_path
@@ -202,6 +213,7 @@ void VideoWindowDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bot
     CHECK_GT(video_cnt, 0)<<" window file is empty";
 
     LOG(INFO)<<" Number of videos: "<<video_cnt;
+    CHECK_EQ(fg_windows_by_vid_.size(), video_cnt);
 
     for (map<int, int>::iterator it = label_hist.begin(); it != label_hist.end(); ++it){
         LOG(INFO) <<" class "<<it->first
@@ -240,35 +252,42 @@ void VideoWindowDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bot
     output_reg_targets_ = false;
     output_completeness_ = false;
     output_completeness_pad_ = false;
-    if (this->layer_param_.video_window_data_param().mode() == VideoWindowDataParameter_Mode_PROP
-        && this->layer_param_.video_window_data_param().gt_fg()
-        && this->layer_param_.video_window_data_param().center_jitter_range() > 0){
-        const int shapes[] = {batch_size, 3};
-        vector<int> label_shape(shapes, shapes + 2);
-        top[1]->Reshape(label_shape);
-        this->prefetch_label_.Reshape(label_shape);
-        this->center_jitter_ = this->layer_param_.video_window_data_param().center_jitter_range();
-        this->length_jitter_ = this->layer_param_.video_window_data_param().length_jitter_range();
-        output_reg_targets_ = true;
-    } else if (this->layer_param_.video_window_data_param().mode() == VideoWindowDataParameter_Mode_DET_LOC){
-        const int shapes[] = {batch_size, 2};
-        vector<int> label_shape(shapes, shapes + 2);
-        top[1]->Reshape(label_shape);
-        this->prefetch_label_.Reshape(label_shape);
-        output_completeness_ = true;
-    } else if (this->layer_param_.video_window_data_param().mode() == VideoWindowDataParameter_Mode_DET_JOINT) {
-        const int shapes[] = {batch_size, 4};
-        vector<int> label_shape(shapes, shapes + 2);
-        top[1]->Reshape(label_shape);
-        this->prefetch_label_.Reshape(label_shape);
-        output_completeness_pad_ = true;
+    if (this->layer_param_.video_window_data_param().use_entire_video()) {
+      const int num_roi_pv = this->layer_param_.video_window_data_param().num_roi_per_video();
+      const int shapes[] = {batch_size * num_roi_pv, 4}; // batch_ind, roi_start, roi_end, label
+      vector<int> label_shape(shapes, shapes + 2);
+      top[1]->Reshape(label_shape);
+      this->prefetch_label_.Reshape(label_shape);
     } else {
-        vector<int> label_shape(1, batch_size);
-        top[1]->Reshape(label_shape);
-        this->prefetch_label_.Reshape(label_shape);
-        output_reg_targets_ = false;
+      if (this->layer_param_.video_window_data_param().mode() == VideoWindowDataParameter_Mode_PROP
+          && this->layer_param_.video_window_data_param().gt_fg()
+          && this->layer_param_.video_window_data_param().center_jitter_range() > 0){
+          const int shapes[] = {batch_size, 3};
+          vector<int> label_shape(shapes, shapes + 2);
+          top[1]->Reshape(label_shape);
+          this->prefetch_label_.Reshape(label_shape);
+          this->center_jitter_ = this->layer_param_.video_window_data_param().center_jitter_range();
+          this->length_jitter_ = this->layer_param_.video_window_data_param().length_jitter_range();
+          output_reg_targets_ = true;
+      } else if (this->layer_param_.video_window_data_param().mode() == VideoWindowDataParameter_Mode_DET_LOC){
+          const int shapes[] = {batch_size, 2};
+          vector<int> label_shape(shapes, shapes + 2);
+          top[1]->Reshape(label_shape);
+          this->prefetch_label_.Reshape(label_shape);
+          output_completeness_ = true;
+      } else if (this->layer_param_.video_window_data_param().mode() == VideoWindowDataParameter_Mode_DET_JOINT) {
+          const int shapes[] = {batch_size, 4};
+          vector<int> label_shape(shapes, shapes + 2);
+          top[1]->Reshape(label_shape);
+          this->prefetch_label_.Reshape(label_shape);
+          output_completeness_pad_ = true;
+      } else {
+          vector<int> label_shape(1, batch_size);
+          top[1]->Reshape(label_shape);
+          this->prefetch_label_.Reshape(label_shape);
+          output_reg_targets_ = false;
+      }
     }
-
 }
 
 
@@ -393,6 +412,125 @@ void VideoWindowDataLayer<Dtype>::InternalThreadEntry(){
 
     // zero out batch
     caffe_set(this->prefetch_data_.count(), Dtype(0), top_data);
+
+    if (this->layer_param_.video_window_data_param().use_entire_video()) {
+      const int num_roi_pv = this->layer_param_.video_window_data_param().num_roi_per_video();
+      const int num_fg = static_cast<int>(static_cast<float>(num_roi_pv) * fg_fraction_);
+      const int num_incomplete = static_cast<int>(static_cast<float>(num_roi_pv) * incomplete_fraction_);
+      const int num_samples[3] = {num_roi_pv - num_fg - num_incomplete, num_fg, num_incomplete};
+      
+      int num_types = (this->layer_param_.video_window_data_param().mode() == VideoWindowDataParameter_Mode_DET_JOINT) ? 3 : 2;
+      int item_id = 0;
+      while (item_id < batch_size) {
+        timer.Start();
+        const unsigned rand_index = PrefetchRand();
+        int video_index = rand_index % gt_windows_.size();
+        pair<string, vector<float> > video_info = video_database_[video_index];
+        //LOG(INFO) << video_index << " / " << gt_windows_.size();
+        if (gt_windows_[video_index].size()==0 || bg_windows_by_vid_[video_index].size()==0) {
+          continue;
+        }
+        string video_path = video_info.first;
+        const float fps = video_info.second[1];
+        const int total_frame = static_cast<int>(video_info.second[0] * fps);
+        
+        float center_move = 0;
+        float length_change = 0;
+        vector<int> offsets = this->SampleSegments(0, total_frame, 0, total_frame, num_segments,
+                                                   snippet_len + is_diff, this->phase_ == TRAIN,
+                                                   this->layer_param_.video_window_data_param().boundary_frame(),
+                                                   center_move, length_change);
+        switch(this->layer_param_.video_window_data_param().modality()) {
+          case VideoWindowDataParameter_Modality_FLOW:
+              ReadSegmentFlowToDatum(video_path, 0, offsets, new_height, new_width, // label = 0, see if it's okay
+                                     snippet_len, &datum, name_pattern_.c_str());
+              break;
+          case VideoWindowDataParameter_Modality_RGB:
+              ReadSegmentRGBToDatum(video_path, 0, offsets, new_height, new_width,
+                                    snippet_len, &datum, true, name_pattern_.c_str());
+              break;
+          case VideoWindowDataParameter_Modality_DIFF:
+              ReadSegmentRGBDiffToDatum(video_path, 0, offsets, new_height, new_width,
+                                        snippet_len, &datum, true, name_pattern_.c_str());
+              break;
+        };
+        read_time += timer.MicroSeconds();
+        timer.Start();     
+        int offset1 = this->prefetch_data_.offset(item_id);
+        this->transformed_data_.set_cpu_data(top_data + offset1);
+        this->data_transformer_->Transform(datum, &(this->transformed_data_));
+ 
+        int roi_index = 0;
+        for (int is_fg = 0; is_fg < num_types; ++is_fg) {
+          for (int sample_idx = 0; sample_idx < num_samples[is_fg]; ++sample_idx) {
+              //LOG(INFO) << "roi_index: " << roi_index;
+              const unsigned rand_index1 = PrefetchRand();
+              vector<float> window;
+              float completeness = 0;
+              switch (this->layer_param_.video_window_data_param().mode()) {
+                case VideoWindowDataParameter_Mode_PROP:
+                case VideoWindowDataParameter_Mode_DET_JOINT: {
+                  switch (is_fg) {
+                    case 0 : {
+                        window = bg_windows_by_vid_[video_index][rand_index1 % bg_windows_by_vid_[video_index].size()];
+                        completeness = 0;
+                        break;
+                    }
+                    case 1 : {
+                        if (this->layer_param_.video_window_data_param().gt_fg()) {
+                            window = gt_windows_[video_index][rand_index1 % gt_windows_[video_index].size()];
+                        } else {
+                            window = fg_windows_by_vid_[video_index][rand_index1 % fg_windows_by_vid_[video_index].size()];
+                        }
+                        completeness = window[VideoWindowDataLayer::LABEL];
+                        break;
+                    }
+                    case 2 : {
+                        window = incomplete_windows_by_vid_[video_index][rand_index1 % incomplete_windows_by_vid_[video_index].size()];
+                        completeness = 0;
+                        break;
+                    }
+                  }
+                }
+                case VideoWindowDataParameter_Mode_DET_LOC:
+                case VideoWindowDataParameter_Mode_DET: {
+                  if (!is_fg) {
+                      window = bg_windows_by_vid_[video_index][rand_index1 % bg_windows_by_vid_[video_index].size()];
+                  } else {
+                      if (this->layer_param_.video_window_data_param().gt_fg()) {
+                          window = gt_windows_[video_index][rand_index1 % gt_windows_[video_index].size()];
+                      } else {
+                          window = fg_windows_by_vid_[video_index][rand_index1 % fg_windows_by_vid_[video_index].size()];
+                      }
+                  }
+                  break;
+                }
+                case VideoWindowDataParameter_Mode_CLS: {
+                    window = gt_windows_[video_index][rand_index1 % gt_windows_[video_index].size()];
+                    break;
+                }
+              }
+              int label_step = 4;
+              int label_offset = 0;
+              const int start_segment = std::max(static_cast<int>(ceil(window[VideoWindowDataLayer::START] * fps / total_frame * num_segments)), 0);
+              const int end_segment = std::min(static_cast<int>(floor(window[VideoWindowDataLayer::END] * fps / total_frame * num_segments)), num_segments-1);
+              const int label = (this->layer_param_.video_window_data_param().merge_positive()) ? is_fg : window[VideoWindowDataLayer::LABEL];
+              //LOG(INFO) << "start_segment: " << start_segment << ", end_segment: " << end_segment;
+              if (start_segment > end_segment) continue;  
+              top_label[(item_id * num_roi_pv + roi_index) * label_step + label_offset++] = item_id;
+              top_label[(item_id * num_roi_pv + roi_index) * label_step + label_offset++] = start_segment;
+              top_label[(item_id * num_roi_pv + roi_index) * label_step + label_offset++] = end_segment;
+              top_label[(item_id * num_roi_pv + roi_index) * label_step + label_offset++] = label;
+              roi_index++;
+          }
+        }
+        item_id++;
+      }
+    batch_timer.Stop();
+    DLOG(INFO) << "Prefetch batch: " << batch_timer.MilliSeconds() << " ms.";
+    DLOG(INFO) << "     Read time: " << read_time / 1000 << " ms.";
+      return;
+    }
 
     const int num_fg = static_cast<int>(static_cast<float>(batch_size) * fg_fraction_);
     const int num_incomplete = static_cast<int>(static_cast<float>(batch_size) * incomplete_fraction_);
