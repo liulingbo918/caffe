@@ -74,9 +74,9 @@ void TROIPoolingLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom,
   
   if (op_ != ReductionParameter_ReductionOp_TOPK) {
     for (int n = 0; n < num_rois; ++n) {
-      int roi_batch_ind = bottom_rois[0];
-      int roi_start = bottom_rois[1];
-      int roi_end = bottom_rois[2];
+      int roi_batch_ind = bottom_rois[n * 3];
+      int roi_start = bottom_rois[n * 3 + 1];
+      int roi_end = bottom_rois[n *3 + 2];
       CHECK_GE(roi_batch_ind, 0);
       CHECK_LT(roi_batch_ind, batch_size);
       CHECK_GE(roi_start, 0);
@@ -85,33 +85,29 @@ void TROIPoolingLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom,
       int tick = ticks_[0];
       //LOG(INFO) << "roi_batch_ind = " << roi_batch_ind << ", roi_start = " << roi_start << ", roi_end = " << roi_end << "tick = " << tick;
       // Create mask from bottom_data (b, 0:C, 0:S), and set 0 on (b, 0:c_1 || c_2:end, 0:S)
-      bottom_data += tick * step_ * roi_batch_ind;
-      caffe_copy(bottom[0]->count()/bottom[0]->shape()[0], bottom_data, mask);
-      bottom_data -= tick * step_ * roi_batch_ind;
       for (int t = 0; t < tick; ++t) {
-        if (t < roi_start || t >roi_end) {
-          caffe_set(step_, Dtype(0), mask);
+        for (int i = 0; i < step_; ++i) {
+          if (t < roi_start || t >roi_end) 
+            mask[t * step_ + i] = Dtype(0);
+          else
+            mask[t * step_ + i] = bottom_data[(roi_batch_ind * tick + t) * step_ + i];
         }
-        mask += step_;
       }
-      mask -= tick * step_;
       Dtype coeff = (op_ == ReductionParameter_ReductionOp_MEAN) ? Dtype(1) / Dtype(tick) : Dtype(1);
       for (int t = 0; t < tick; ++t) {
-        caffe_cpu_axpby(step_, coeff, mask, Dtype(1), top_data);
+        for (int i = 0; i < step_; ++i) {
+          top_data[n * step_ + i] = coeff * mask[t * step_ + i];
+        }
       }
-      top_data += step_;
-      bottom_rois += 3;
     }
   } else {
     caffe_set(bottom[1]->shape()[0] * bottom[0]->count() / bottom[0]->shape()[0], Dtype(-1), idx_data);
     int k = this->layer_param_.batch_reduction_param().reduction_param().k();
     int tick = ticks_[0];
-    vector<std::pair<Dtype, int> > buffer;
-    buffer.resize(tick);
     for (int n = 0; n < num_rois; ++n) {
-      int roi_batch_ind = bottom_rois[0];
-      int roi_start = bottom_rois[1];
-      int roi_end = bottom_rois[2];
+      int roi_batch_ind = bottom_rois[n * 3];
+      int roi_start = bottom_rois[n * 3 + 1];
+      int roi_end = bottom_rois[n * 3 +2];
       CHECK_GE(roi_batch_ind, 0);
       CHECK_LT(roi_batch_ind, batch_size);
       CHECK_GE(roi_start, 0);
@@ -120,10 +116,11 @@ void TROIPoolingLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom,
       //LOG(INFO) << "roi_batch_ind = " << roi_batch_ind << ", roi_start = " << roi_start << ", roi_end = " << roi_end << " tick = " << tick << " step_ = " << step_;
       
       for (int i = 0; i < step_; ++i) {
-        for (int t = 0; t < roi_end-roi_start+1; ++t) {
-          buffer[t] = std::make_pair(bottom_data[(t+roi_start) * step_ + i], t);
+        vector<std::pair<Dtype, int> > buffer;
+        for (int t = roi_start; t < roi_end + 1; ++t) {
+          buffer.push_back(std::make_pair(bottom_data[(roi_batch_ind * tick + t) * step_ + i], t - roi_start));
         } 
-        std::sort(buffer.begin(), buffer.begin()+roi_end-roi_start+1, comparator<Dtype>);
+        std::sort(buffer.begin(), buffer.end(), comparator<Dtype>);
 
         k = (k > roi_end - roi_start + 1) ? (roi_end - roi_start + 1) : k;
         Dtype accum = 0;
@@ -131,13 +128,12 @@ void TROIPoolingLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom,
           std::pair<Dtype, int>& p = buffer[k_out];
           CHECK_GT(p.first, -FLT_MAX);
           accum += p.first;
-          idx_data[(p.second+roi_start)*step_ + i] = k_out + 1;
+          idx_data[p.second *step_ + i] = k_out + 1;
         }
-        top_data[i] = accum / Dtype(k);
+        top_data[n * step_ + i] = accum / Dtype(k);
+        buffer.clear();
       }
-      top_data += step_;
       idx_data += tick * step_;
-      bottom_rois += 3;
     }
   }
 }
@@ -157,40 +153,33 @@ void TROIPoolingLayer<Dtype>::Backward_cpu(const vector<Blob<Dtype>*>& top,
     for (int n = 0; n < num_rois; ++n) {
       int tick = ticks_[0];
       Dtype coeff = (op_ == ReductionParameter_ReductionOp_MEAN) ? Dtype(1) / Dtype(tick) : Dtype(1);
-      int roi_batch_ind = bottom_rois[0];
-      int roi_start = bottom_rois[1];
-      int roi_end = bottom_rois[2];
-      bottom_diff += tick * step_ * roi_batch_ind;
+      int roi_batch_ind = bottom_rois[n * 3];
+      int roi_start = bottom_rois[n * 3 + 1];
+      int roi_end = bottom_rois[n * 3 + 2];
       for (int t = 0; t < tick; ++t) {
         if (t >= roi_start && t <= roi_end)
-          caffe_cpu_axpby(step_, coeff, top_diff, Dtype(1), bottom_diff);
-        bottom_diff += step_;
-        top_diff += step_;
+          for (int i = 0; i < step_; ++i) {
+            bottom_diff[(roi_batch_ind * tick + t) * step_ + i] += coeff * top_diff[n * step_ + i];
+          }
       }
-      bottom_diff -= tick * step_ * roi_batch_ind;
     }
   } else {
     int tick = ticks_[0];
     int k = this->layer_param_.batch_reduction_param().reduction_param().k();
     for (int n = 0; n < num_rois; ++n) {
-      int roi_batch_ind = bottom_rois[0];
-      int roi_start = bottom_rois[1];
-      int roi_end = bottom_rois[2];
+      int roi_batch_ind = bottom_rois[n * 3];
+      int roi_start = bottom_rois[n * 3 + 1];
+      int roi_end = bottom_rois[n * 3 + 2];
       k = (k > roi_end - roi_start + 1) ? (roi_end - roi_start + 1) : k;
-      bottom_diff += tick * step_ * roi_batch_ind;
       for (int i = 0; i < step_; ++i) {
-        Dtype diff = top_diff[i] / Dtype(k);
         for (int t = 0; t < tick; ++t) {
+          Dtype diff = top_diff[t * step_ + i] / Dtype(k);
           if (t >= roi_start && t <= roi_end) 
-            bottom_diff[t * step_ + i] += (idx_data[t * step_ + i] >= 1) ? diff : 0;
+            bottom_diff[(roi_batch_ind * tick + t) * step_ + i] += (idx_data[(n * tick + t) * step_ + i] >= 1) ? diff : 0;
           else
-            CHECK_EQ(idx_data[t * step_ + i], -1);
+            CHECK_EQ(idx_data[(n * tick + t) * step_ + i], -1);
         }
       }
-      top_diff += step_;
-      bottom_diff -= tick * step_ * roi_batch_ind;
-      idx_data += tick * step_;  
-      bottom_rois += 3;
     }
   }
 }

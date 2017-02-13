@@ -426,7 +426,6 @@ void VideoWindowDataLayer<Dtype>::InternalThreadEntry(){
         const unsigned rand_index = PrefetchRand();
         int video_index = rand_index % gt_windows_.size();
         pair<string, vector<float> > video_info = video_database_[video_index];
-        //LOG(INFO) << video_index << " / " << gt_windows_.size();
         if (gt_windows_[video_index].size()==0 || bg_windows_by_vid_[video_index].size()==0) {
           continue;
         }
@@ -463,7 +462,6 @@ void VideoWindowDataLayer<Dtype>::InternalThreadEntry(){
         int roi_index = 0;
         for (int is_fg = 0; is_fg < num_types; ++is_fg) {
           for (int sample_idx = 0; sample_idx < num_samples[is_fg]; ++sample_idx) {
-              //LOG(INFO) << "roi_index: " << roi_index;
               const unsigned rand_index1 = PrefetchRand();
               vector<float> window;
               float completeness = 0;
@@ -515,7 +513,7 @@ void VideoWindowDataLayer<Dtype>::InternalThreadEntry(){
               const int start_segment = std::max(static_cast<int>(ceil(window[VideoWindowDataLayer::START] * fps / total_frame * num_segments)), 0);
               const int end_segment = std::min(static_cast<int>(floor(window[VideoWindowDataLayer::END] * fps / total_frame * num_segments)), num_segments-1);
               const int label = (this->layer_param_.video_window_data_param().merge_positive()) ? is_fg : window[VideoWindowDataLayer::LABEL];
-              //LOG(INFO) << "start_segment: " << start_segment << ", end_segment: " << end_segment;
+              //LOG(INFO) << "[video_window_data] item_id: " << item_id << " start_segment: " << start_segment << ", end_segment: " << end_segment << " label: " << label;
               if (start_segment > end_segment) continue;  
               top_label[(item_id * num_roi_pv + roi_index) * label_step + label_offset++] = item_id;
               top_label[(item_id * num_roi_pv + roi_index) * label_step + label_offset++] = start_segment;
