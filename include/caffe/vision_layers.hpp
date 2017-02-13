@@ -598,6 +598,56 @@ class SPPLayer : public Layer<Dtype> {
     };
 
 
+/**
+ * @brief TROIPoolingLayer - Temporal Region of Interest Pooling Layer
+ */
+    template <typename Dtype>
+    class TROIPoolingLayer : public Layer<Dtype> {
+    public:
+        explicit TROIPoolingLayer(const LayerParameter& param)
+                : Layer<Dtype>(param) {}
+        virtual void LayerSetUp(const vector<Blob<Dtype>*>& bottom,
+                                const vector<Blob<Dtype>*>& top);
+        virtual void Reshape(const vector<Blob<Dtype>*>& bottom,
+                             const vector<Blob<Dtype>*>& top);
+
+        virtual inline const char* type() const { return "TROIPooling"; }
+
+        virtual inline int MinBottomBlobs() const { return 2; }
+        virtual inline int MaxBottomBlobs() const { return 2; }
+        virtual inline int MinTopBlobs() const { return 1; }
+        virtual inline int MaxTopBlobs() const { return 1; }
+
+    protected:
+        virtual void Forward_cpu(const vector<Blob<Dtype>*>& bottom,
+                                 const vector<Blob<Dtype>*>& top);
+        //virtual void Forward_gpu(const vector<Blob<Dtype>*>& bottom,
+        //                         const vector<Blob<Dtype>*>& top);
+        virtual void Backward_cpu(const vector<Blob<Dtype>*>& top,
+                                  const vector<bool>& propagate_down, const vector<Blob<Dtype>*>& bottom);
+        //virtual void Backward_gpu(const vector<Blob<Dtype>*>& top,
+        //                          const vector<bool>& propagate_down, const vector<Blob<Dtype>*>& bottom);
+
+        /// @brief the reduction operation performed by the layer
+        ReductionParameter_ReductionOp op_;
+        /// @brief the index of the first input axis to reduce
+        int axis_;
+        /// @brief the number of reductions performed
+        int num_;
+        /// @brief the step of reduction
+        int step_;
+        /// @brief whether to perform position sensitive learning
+        bool pos_;
+        /// @brief a helper Blob used for transferring ticks to GPU
+        Blob<Dtype> ticks_blob_;
+        /// @brief a blob of 0-1 mask
+        Blob<Dtype> masked_data_;
+        vector<int> levels_;
+        vector<int> ticks_;
+
+        Blob<Dtype> argsort_idx_;
+    };
+
 }  // namespace caffe
 
 #endif  // CAFFE_VISION_LAYERS_HPP_

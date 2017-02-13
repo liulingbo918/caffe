@@ -380,6 +380,9 @@ protected:
 	vector<vector<float> > fg_windows_;
 	vector<vector<float> > bg_windows_;
         vector<vector<float> > incomplete_windows_;
+        vector<vector<vector<float> > > fg_windows_by_vid_;
+        vector<vector<vector<float> > > bg_windows_by_vid_;
+        vector<vector<vector<float> > > incomplete_windows_by_vid_;
 	vector<vector<vector<float> > > gt_windows_;
 	vector<vector<float> > flat_gt_windows_;
 	vector<std::pair<std::string, Datum > > video_database_cache_;
