@@ -508,7 +508,7 @@ void VideoWindowDataLayer<Dtype>::InternalThreadEntry(){
                     break;
                 }
               }
-              int label_step = 4;
+              int label_step = 4; //6
               int label_offset = 0;
               const int start_segment = std::max(static_cast<int>(ceil(window[VideoWindowDataLayer::START] * fps / total_frame * num_segments)), 0);
               const int end_segment = std::min(static_cast<int>(floor(window[VideoWindowDataLayer::END] * fps / total_frame * num_segments)), num_segments-1);
@@ -517,7 +517,9 @@ void VideoWindowDataLayer<Dtype>::InternalThreadEntry(){
               if (start_segment > end_segment) continue;  
               top_label[(item_id * num_roi_pv + roi_index) * label_step + label_offset++] = item_id;
               top_label[(item_id * num_roi_pv + roi_index) * label_step + label_offset++] = start_segment;
+              //top_label[(item_id * num_roi_pv + roi_index) * label_step + label_offset++] = 0;
               top_label[(item_id * num_roi_pv + roi_index) * label_step + label_offset++] = end_segment;
+              //top_label[(item_id * num_roi_pv + roi_index) * label_step + label_offset++] = 101;
               top_label[(item_id * num_roi_pv + roi_index) * label_step + label_offset++] = label;
               roi_index++;
           }

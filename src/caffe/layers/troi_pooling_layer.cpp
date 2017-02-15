@@ -83,17 +83,17 @@ void TROIPoolingLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom,
       CHECK_LT(roi_end, bottom[0]->shape()[1]);
       
       int tick = ticks_[0];
-      //LOG(INFO) << "roi_batch_ind = " << roi_batch_ind << ", roi_start = " << roi_start << ", roi_end = " << roi_end << "tick = " << tick;
       // Create mask from bottom_data (b, 0:C, 0:S), and set 0 on (b, 0:c_1 || c_2:end, 0:S)
       for (int t = 0; t < tick; ++t) {
         for (int i = 0; i < step_; ++i) {
           if (t < roi_start || t >roi_end) 
             mask[t * step_ + i] = Dtype(0);
           else
-            mask[t * step_ + i] = bottom_data[(roi_batch_ind * tick + t) * step_ + i];
+            mask[t * step_ + i] = Dtype(bottom_data[(roi_batch_ind * tick + t) * step_ + i]);
         }
       }
-      Dtype coeff = (op_ == ReductionParameter_ReductionOp_MEAN) ? Dtype(1) / Dtype(tick) : Dtype(1);
+      Dtype coeff = (op_ == ReductionParameter_ReductionOp_MEAN) ? Dtype(1) / Dtype(roi_end-roi_start+1) : Dtype(1);
+      //Dtype coeff = (op_ == ReductionParameter_ReductionOp_MEAN) ? Dtype(1) / Dtype(tick) : Dtype(1);
       for (int t = 0; t < tick; ++t) {
         for (int i = 0; i < step_; ++i) {
           top_data[n * step_ + i] = coeff * mask[t * step_ + i];
@@ -104,6 +104,8 @@ void TROIPoolingLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom,
     caffe_set(bottom[1]->shape()[0] * bottom[0]->count() / bottom[0]->shape()[0], Dtype(-1), idx_data);
     int k = this->layer_param_.batch_reduction_param().reduction_param().k();
     int tick = ticks_[0];
+    vector<std::pair<Dtype, int> > buffer;
+    buffer.resize(tick);
     for (int n = 0; n < num_rois; ++n) {
       int roi_batch_ind = bottom_rois[n * 3];
       int roi_start = bottom_rois[n * 3 + 1];
@@ -113,27 +115,25 @@ void TROIPoolingLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom,
       CHECK_GE(roi_start, 0);
       CHECK_LT(roi_end, bottom[0]->shape()[1]);
       
-      //LOG(INFO) << "roi_batch_ind = " << roi_batch_ind << ", roi_start = " << roi_start << ", roi_end = " << roi_end << " tick = " << tick << " step_ = " << step_;
-      
+      CHECK_EQ(bottom[0]->count(), batch_size * tick * step_);
       for (int i = 0; i < step_; ++i) {
-        vector<std::pair<Dtype, int> > buffer;
         for (int t = roi_start; t < roi_end + 1; ++t) {
-          buffer.push_back(std::make_pair(bottom_data[(roi_batch_ind * tick + t) * step_ + i], t - roi_start));
+          std::pair<Dtype, int> p(bottom_data[(roi_batch_ind * tick + t) * step_ + i], t);
+          buffer[t-roi_start] = p;
         } 
-        std::sort(buffer.begin(), buffer.end(), comparator<Dtype>);
+        if (roi_end>roi_start)
+            std::sort(buffer.begin(), buffer.begin() + roi_end - roi_start + 1, comparator<Dtype>);
 
-        k = (k > roi_end - roi_start + 1) ? (roi_end - roi_start + 1) : k;
+        int k_eq = (k > roi_end - roi_start + 1) ? (roi_end - roi_start + 1) : k;
         Dtype accum = 0;
-        for (int k_out = 0; k_out < k; ++k_out) {
+        for (int k_out = 0; k_out < k_eq; ++k_out) {
           std::pair<Dtype, int>& p = buffer[k_out];
           CHECK_GT(p.first, -FLT_MAX);
           accum += p.first;
-          idx_data[p.second *step_ + i] = k_out + 1;
+          idx_data[(n * tick + p.second) * step_ + i] = k_out + 1;
         }
-        top_data[n * step_ + i] = accum / Dtype(k);
-        buffer.clear();
+        top_data[n * step_ + i] = accum / Dtype(k_eq);
       }
-      idx_data += tick * step_;
     }
   }
 }
@@ -152,10 +152,11 @@ void TROIPoolingLayer<Dtype>::Backward_cpu(const vector<Blob<Dtype>*>& top,
   if (op_ != ReductionParameter_ReductionOp_TOPK) {
     for (int n = 0; n < num_rois; ++n) {
       int tick = ticks_[0];
-      Dtype coeff = (op_ == ReductionParameter_ReductionOp_MEAN) ? Dtype(1) / Dtype(tick) : Dtype(1);
       int roi_batch_ind = bottom_rois[n * 3];
       int roi_start = bottom_rois[n * 3 + 1];
       int roi_end = bottom_rois[n * 3 + 2];
+      //Dtype coeff = (op_ == ReductionParameter_ReductionOp_MEAN) ? Dtype(1) / Dtype(tick) : Dtype(1);
+      Dtype coeff = (op_ == ReductionParameter_ReductionOp_MEAN) ? Dtype(1) / Dtype(roi_end-roi_start +1) : Dtype(1);
       for (int t = 0; t < tick; ++t) {
         if (t >= roi_start && t <= roi_end)
           for (int i = 0; i < step_; ++i) {
@@ -170,14 +171,20 @@ void TROIPoolingLayer<Dtype>::Backward_cpu(const vector<Blob<Dtype>*>& top,
       int roi_batch_ind = bottom_rois[n * 3];
       int roi_start = bottom_rois[n * 3 + 1];
       int roi_end = bottom_rois[n * 3 + 2];
-      k = (k > roi_end - roi_start + 1) ? (roi_end - roi_start + 1) : k;
+      int k_eq = (k > roi_end - roi_start + 1) ? (roi_end - roi_start + 1) : k;
       for (int i = 0; i < step_; ++i) {
         for (int t = 0; t < tick; ++t) {
-          Dtype diff = top_diff[t * step_ + i] / Dtype(k);
+          Dtype diff = top_diff[n * step_ + i] / Dtype(k_eq);
           if (t >= roi_start && t <= roi_end) 
             bottom_diff[(roi_batch_ind * tick + t) * step_ + i] += (idx_data[(n * tick + t) * step_ + i] >= 1) ? diff : 0;
           else
             CHECK_EQ(idx_data[(n * tick + t) * step_ + i], -1);
+        }
+      }
+    }
+    for (int b = 0; b < 2; ++b) {
+      for (int t = 0; t < tick; ++t) {
+        for (int i = 0; i < step_; ++i) {
         }
       }
     }
