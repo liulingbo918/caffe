@@ -182,12 +182,6 @@ void TROIPoolingLayer<Dtype>::Backward_cpu(const vector<Blob<Dtype>*>& top,
         }
       }
     }
-    for (int b = 0; b < 2; ++b) {
-      for (int t = 0; t < tick; ++t) {
-        for (int i = 0; i < step_; ++i) {
-        }
-      }
-    }
   }
 }
 
