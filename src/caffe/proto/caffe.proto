@@ -1323,6 +1323,7 @@ message BatchReductionParameter {
 
 message TROIPoolingParameter {
     optional ReductionParameter reduction_param = 1;
+    optional int32 num_segments = 2 [default=0];
 }
 
 message MemoryOptimizationParameter {

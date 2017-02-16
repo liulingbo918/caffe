@@ -641,10 +641,10 @@ class SPPLayer : public Layer<Dtype> {
         bool pos_;
         /// @brief a helper Blob used for transferring ticks to GPU
         Blob<Dtype> ticks_blob_;
-        /// @brief a blob of 0-1 mask
-        Blob<Dtype> masked_data_;
         vector<int> levels_;
         vector<int> ticks_;
+
+        Blob<Dtype> segment_data_;
 
         Blob<Dtype> argsort_idx_;
     };
