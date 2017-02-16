@@ -414,15 +414,19 @@ class VideoWindowDataLayer : public BasePrefetchingDataLayer<Dtype> {
   virtual inline int ExactNumBottomBlobs() const { return 0; }
   virtual int ExactNumTopBlobs() const;
 
- protected:
-  shared_ptr<Caffe::RNG> prefetch_rng_;
-  vector<std::pair<std::string, vector<float> > > video_database_;
-  enum WindowField { VIDEO_INDEX, LABEL, OVERLAP, START, END, OVERLAP_SELF, NUM };
-  vector<vector<float> > fg_windows_;
-  vector<vector<float> > bg_windows_;
-  vector<vector<vector<float> > > gt_windows_;
-  vector<vector<float> > flat_gt_windows_;
-  vector<std::pair<std::string, Datum > > video_database_cache_;
+protected:
+	shared_ptr<Caffe::RNG> prefetch_rng_;
+	vector<std::pair<std::string, vector<float> > > video_database_;
+	enum WindowField { VIDEO_INDEX, LABEL, OVERLAP, START, END, OVERLAP_SELF, NUM };
+	vector<vector<float> > fg_windows_;
+	vector<vector<float> > bg_windows_;
+        vector<vector<float> > incomplete_windows_;
+        vector<vector<vector<float> > > fg_windows_by_vid_;
+        vector<vector<vector<float> > > bg_windows_by_vid_;
+        vector<vector<vector<float> > > incomplete_windows_by_vid_;
+	vector<vector<vector<float> > > gt_windows_;
+	vector<vector<float> > flat_gt_windows_;
+	vector<std::pair<std::string, Datum > > video_database_cache_;
 
   string name_pattern_;
   string root_folder_;
@@ -431,11 +435,16 @@ class VideoWindowDataLayer : public BasePrefetchingDataLayer<Dtype> {
   float bg_thresh_;
   float fg_fraction_;
 
-  float center_jitter_;
-  float length_jitter_;
+        float incomplete_overlap_threshold_;
+        float incomplete_overlap_self_threshold_;
+        float incomplete_fraction_;
 
-  bool output_reg_targets_;
-  bool output_completeness_;
+	float center_jitter_;
+	float length_jitter_;
+
+	bool output_reg_targets_;
+	bool output_completeness_;
+        bool output_completeness_pad_;
 
   virtual void InternalThreadEntry();
   virtual unsigned int PrefetchRand();

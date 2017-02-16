@@ -367,6 +367,7 @@ message LayerParameter {
   optional BiasParameter bias_param = 161;
   optional BatchReductionParameter batch_reduction_param = 162;
   optional VideoWindowDataParameter video_window_data_param = 163;
+  optional TROIPoolingParameter troi_pooling_param = 164;
 }
 
 // Message that stores parameters used to apply transformation
@@ -1320,6 +1321,10 @@ message BatchReductionParameter {
     optional bool pos = 3 [default = false];
 }
 
+message TROIPoolingParameter {
+    optional ReductionParameter reduction_param = 1;
+}
+
 message MemoryOptimizationParameter {
   // Mode of optimization
 
@@ -1387,6 +1392,7 @@ message VideoWindowDataParameter {
     CLS = 1;
     PROP = 2;
     DET_LOC = 3;
+    DET_JOINT = 4;
   }
 
   optional Mode mode = 18 [default=DET];
@@ -1394,4 +1400,13 @@ message VideoWindowDataParameter {
 
   optional float center_jitter_range = 20 [default=0];
   optional float length_jitter_range = 21 [default=0];
+
+  optional float incomplete_overlap_threshold = 22 [default=-1];
+  optional float incomplete_overlap_self_threshold = 23 [default=2];
+  optional float incomplete_fraction = 24 [default=0];
+  optional uint32 num_segments_side = 25 [default=0];
+  optional float side_interval = 26 [default=0];
+  
+  optional bool use_entire_video = 27;
+  optional uint32 num_roi_per_video = 28;
 }
