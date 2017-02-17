@@ -164,3 +164,13 @@ if (USE_MPI)
   add_definitions(-DUSE_MPI)
   set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${MPI_CXX_LINK_FLAGS}")
 endif()
+
+
+# ---[ OpenCV
+find_package(WarpCTC)
+if(WAPRCTC_FOUND) # if not OpenCV 3.x, then imgcodecs are not found
+  list(APPEND Caffe_LINKER_LIBS ${WARPCTC_LIBRARIES})
+  include_directories(SYSTEM ${WARPCTC_INCLUDE_DIRS})
+  message(STATUS "WarpCTC found")
+  add_definitions(-DWITH_CTC)
+endif()

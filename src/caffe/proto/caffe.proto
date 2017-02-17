@@ -368,6 +368,7 @@ message LayerParameter {
   optional BatchReductionParameter batch_reduction_param = 162;
   optional VideoWindowDataParameter video_window_data_param = 163;
   optional TROIPoolingParameter troi_pooling_param = 164;
+  optional PermuteParameter permute_pram = 165;
 }
 
 // Message that stores parameters used to apply transformation
@@ -1410,4 +1411,8 @@ message VideoWindowDataParameter {
   
   optional bool use_entire_video = 27;
   optional uint32 num_roi_per_video = 28;
+}
+
+message PermuteParameter {
+  repeated int32 axis_ = 1;
 }
