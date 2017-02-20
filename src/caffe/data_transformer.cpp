@@ -668,7 +668,7 @@ void DataTransformer<Dtype>::Transform(const cv::Mat& cv_img,
     CHECK_EQ(crop_size, width);
     if (phase_ == TRAIN) {
       // in training, we randomly crop different sized crops
-      sampleRandomCropSize(img_height, img_width, crop_height, crop_width);
+      sampleRandomCropSize(img_height, img_width, crop_height, crop_width, 0.6, 1.0, 0.8, 1.25);
 
 
 
