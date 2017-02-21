@@ -195,6 +195,8 @@ message SolverParameter {
     SGD = 0;
     NESTEROV = 1;
     ADAGRAD = 2;
+    RMSProp = 3;
+    ADAM = 4;
   }
   optional SolverType solver_type = 30 [default = SGD];
   // numerical stability for AdaGrad
@@ -210,6 +212,14 @@ message SolverParameter {
   // Total memory allowed to be used for workspaces in cudnn's convolution, in MBs. default is 300MB.
   // The framework will try to find the fastest setup given this limit.
   optional int32 richness = 37 [default = 300];
+
+
+  // parameters for the Adam solver
+  optional float momentum2 = 39 [default = 0.999];
+
+  // RMSProp decay value
+  // MeanSquare(t) = rms_decay*MeanSquare(t-1) + (1-rms_decay)*SquareGradient(t)
+  optional float rms_decay = 40 [default = 0.99];
 }
 
 // A message that stores the solver snapshots
@@ -368,7 +378,7 @@ message LayerParameter {
   optional BatchReductionParameter batch_reduction_param = 162;
   optional VideoWindowDataParameter video_window_data_param = 163;
   optional TROIPoolingParameter troi_pooling_param = 164;
-  optional PermuteParameter permute_pram = 165;
+  optional PermuteParameter permute_param = 165;
 }
 
 // Message that stores parameters used to apply transformation
@@ -716,6 +726,9 @@ message VideoDataParameter{
   // The type of input
   optional bool encoded = 15 [default = false];
   optional bool grayscale = 16 [default = false];
+
+  // Number of stages in the label output
+  optional int32 num_stages = 17 [default = 0];
 }
 message InfogainLossParameter {
   // Specify the infogain matrix source.
@@ -1415,5 +1428,5 @@ message VideoWindowDataParameter {
 }
 
 message PermuteParameter {
-  repeated int32 axis_ = 1;
+  repeated int32 axis = 1;
 }

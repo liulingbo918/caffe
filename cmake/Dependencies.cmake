@@ -168,7 +168,7 @@ endif()
 
 # ---[ OpenCV
 find_package(WarpCTC)
-if(WAPRCTC_FOUND) # if not OpenCV 3.x, then imgcodecs are not found
+if(WARPCTC_FOUND)
   list(APPEND Caffe_LINKER_LIBS ${WARPCTC_LIBRARIES})
   include_directories(SYSTEM ${WARPCTC_INCLUDE_DIRS})
   message(STATUS "WarpCTC found")

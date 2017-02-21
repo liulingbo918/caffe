@@ -7,9 +7,10 @@
 #include "caffe/util/device_alternate.hpp"
 
 
+template<typename Dtype>
 __global__ void permute_kernel(const size_t* dims, size_t ndim, size_t n,
-                               float* dst_data, size_t dst_dim, float beta,
-                               const float* src_data, size_t src_dim, float alpha){
+                               Dtype* dst_data, size_t dst_dim, Dtype beta,
+                               const Dtype* src_data, size_t src_dim, Dtype alpha){
   CUDA_KERNEL_LOOP(src_idx, n){
 
     size_t src_dim_idx = 0;
@@ -48,9 +49,10 @@ __global__ void permute_kernel(const size_t* dims, size_t ndim, size_t n,
 
 namespace caffe {
 
+template<typename Dtype>
 void permute_dimension_gpu(const size_t *dims, size_t ndim, size_t num,
-                           float *dst_data, size_t dst_dim, float beta,
-                           const float *src_data, size_t src_dim, float alpha) {
+                           Dtype *dst_data, size_t dst_dim, Dtype beta,
+                           const Dtype *src_data, size_t src_dim, Dtype alpha) {
 
   if (src_dim == dst_dim) return;
 
@@ -61,23 +63,25 @@ void permute_dimension_gpu(const size_t *dims, size_t ndim, size_t num,
 }
 
 template<typename Dtype>
-void PermuteLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype> *> &bottom,
+void PermuteLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype> *> &bottom,
 const vector<Blob<Dtype> *> &top) {
-  permute_dimension_gpu(dims_.gpu_data(), dims_.count(), bottom[0]->count(),
+  permute_dimension_gpu((const size_t*)dims_.gpu_data(), bottom[0]->num_axes(), bottom[0]->count(),
       top[0]->mutable_gpu_data(), second_dim_, (Dtype)0,
   bottom[0]->gpu_data(), first_dim_, (Dtype)1);
 }
 
 template<typename Dtype>
-void PermuteLayer<Dtype>::Backward_cpu(const vector<Blob<Dtype> *> &top,
+void PermuteLayer<Dtype>::Backward_gpu(const vector<Blob<Dtype> *> &top,
 const vector<bool> &propagate_down, const vector<Blob<Dtype> *> &bottom) {
 
   if (propagate_down[0]) {
-    permute_dimension_gpu(permute_dims_.gpu_data(), permute_dims_.count(), bottom[0]->count(),
+    permute_dimension_gpu((const size_t*)permute_dims_.gpu_data(), bottom[0]->num_axes(), bottom[0]->count(),
         bottom[0]->mutable_gpu_diff(), second_dim_, (Dtype) 0,
     top[0]->gpu_diff(), first_dim_, (Dtype) 1);
   }
 
 }
+
+INSTANTIATE_LAYER_GPU_FUNCS(PermuteLayer);
 
 }

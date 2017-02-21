@@ -136,6 +136,43 @@ class AdaGradSolver : public SGDSolver<Dtype> {
 };
 
 template <typename Dtype>
+class RMSPropSolver : public SGDSolver<Dtype> {
+ public:
+  explicit RMSPropSolver(const SolverParameter& param)
+      : SGDSolver<Dtype>(param) { constructor_sanity_check(); }
+  explicit RMSPropSolver(const string& param_file)
+      : SGDSolver<Dtype>(param_file) { constructor_sanity_check(); }
+
+ protected:
+  virtual void ComputeUpdateValue(int param_id, Dtype rate);
+  void constructor_sanity_check() {
+    CHECK_EQ(0, this->param_.momentum())
+      << "Momentum cannot be used with RMSProp.";
+    CHECK_GE(this->param_.rms_decay(), 0)
+      << "rms_decay should lie between 0 and 1.";
+    CHECK_LT(this->param_.rms_decay(), 1)
+      << "rms_decay should lie between 0 and 1.";
+  }
+
+ DISABLE_COPY_AND_ASSIGN(RMSPropSolver);
+};
+
+template <typename Dtype>
+class AdamSolver : public SGDSolver<Dtype> {
+ public:
+  explicit AdamSolver(const SolverParameter& param)
+      : SGDSolver<Dtype>(param) { AdamPreSolve();}
+  explicit AdamSolver(const string& param_file)
+      : SGDSolver<Dtype>(param_file) { AdamPreSolve(); }
+
+ protected:
+  void AdamPreSolve();
+  virtual void ComputeUpdateValue(int param_id, Dtype rate);
+
+ DISABLE_COPY_AND_ASSIGN(AdamSolver);
+};
+
+template <typename Dtype>
 Solver<Dtype>* GetSolver(const SolverParameter& param) {
   SolverParameter_SolverType type = param.solver_type();
 
@@ -146,11 +183,17 @@ Solver<Dtype>* GetSolver(const SolverParameter& param) {
       return new NesterovSolver<Dtype>(param);
   case SolverParameter_SolverType_ADAGRAD:
       return new AdaGradSolver<Dtype>(param);
+  case SolverParameter_SolverType_RMSProp:
+      return new RMSPropSolver<Dtype>(param);
+  case SolverParameter_SolverType_ADAM:
+      return new AdamSolver<Dtype>(param);
   default:
       LOG(FATAL) << "Unknown SolverType: " << type;
   }
   return (Solver<Dtype>*) NULL;
 }
+
+
 
 }  // namespace caffe
 

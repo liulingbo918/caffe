@@ -1062,8 +1062,8 @@ class PermuteLayer : public Layer<Dtype> {
     int first_dim_;
     int second_dim_;
 
-    Blob<Dtype> dims_;
-    Blob<Dtype> permute_dims_;
+    SyncedMemory dims_;
+    SyncedMemory permute_dims_;
 };
 
 }  // namespace caffe

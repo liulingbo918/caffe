@@ -11,6 +11,8 @@
 #include "caffe/neuron_layers.hpp"
 #include "caffe/proto/caffe.pb.h"
 
+#include "ctc.h"
+
 namespace caffe {
 
 const float kLOG_THRESHOLD = 1e-20;
@@ -857,6 +859,42 @@ protected:
     Blob<Dtype> errors_;
     bool has_weights_;
 };
+
+#ifdef WITH_CTC
+template <typename Dtype>
+class CTCLossLayer : public LossLayer<Dtype> {
+ public:
+  explicit CTCLossLayer(const LayerParameter& param)
+      : LossLayer<Dtype>(param) {}
+  virtual void LayerSetUp(const vector<Blob<Dtype>*>& bottom,
+                          const vector<Blob<Dtype>*>& top);
+  virtual void Reshape(const vector<Blob<Dtype>*>& bottom,
+                       const vector<Blob<Dtype>*>& top);
+
+  virtual inline const char* type() const { return "CTCLoss"; }
+
+  virtual inline int ExactNumBottomBlobs() const { return 2; }
+  virtual inline int ExactNumTopBlobs() const { return 1; }
+
+ protected:
+  virtual void Forward_cpu(const vector<Blob<Dtype>*>& bottom,
+                           const vector<Blob<Dtype>*>& top);
+  virtual void Forward_gpu(const vector<Blob<Dtype>*>& bottom,
+                           const vector<Blob<Dtype>*>& top);
+
+  virtual void Backward_cpu(const vector<Blob<Dtype>*>& top,
+                            const vector<bool>& propagate_down, const vector<Blob<Dtype>*>& bottom);
+  virtual void Backward_gpu(const vector<Blob<Dtype>*>& top,
+                            const vector<bool>& propagate_down, const vector<Blob<Dtype>*>& bottom);
+
+  SyncedMemory workspace_;
+  ctcOptions ctc_opt_;
+  SyncedMemory input_length_;
+  SyncedMemory label_length_;
+  SyncedMemory costs_;
+  SyncedMemory cpu_labels_;
+};
+#endif
 
 }  // namespace caffe
 

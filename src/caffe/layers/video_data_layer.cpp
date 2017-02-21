@@ -89,8 +89,13 @@ void VideoDataLayer<Dtype>:: DataLayerSetUp(const vector<Blob<Dtype>*>& bottom, 
 	}
 	LOG(INFO) << "output data size: " << top[0]->num() << "," << top[0]->channels() << "," << top[0]->height() << "," << top[0]->width();
 
-	top[1]->Reshape(batch_size, 1, 1, 1);
-	this->prefetch_label_.Reshape(batch_size, 1, 1, 1);
+	if (this->layer_param_.video_data_param().num_stages() == 0) {
+		top[1]->Reshape(batch_size, 1, 1, 1);
+		this->prefetch_label_.Reshape(batch_size, 1, 1, 1);
+	}else{
+		top[1]->Reshape(batch_size, this->layer_param_.video_data_param().num_stages(), 1, 1);
+		this->prefetch_label_.Reshape(batch_size, this->layer_param_.video_data_param().num_stages(), 1, 1);
+	}
 
 	vector<int> top_shape = this->data_transformer_->InferBlobShape(datum);
 	this->transformed_data_.Reshape(top_shape);
@@ -155,7 +160,13 @@ void VideoDataLayer<Dtype>::InternalThreadEntry(){
 		int offset1 = this->prefetch_data_.offset(item_id);
     	        this->transformed_data_.set_cpu_data(top_data + offset1);
 		this->data_transformer_->Transform(datum, &(this->transformed_data_));
-		top_label[item_id] = lines_[lines_id_].second;
+		if (this->layer_param_.video_data_param().num_stages() == 0) {
+			top_label[item_id] = lines_[lines_id_].second;
+		}else{
+			int ns = this->layer_param_.video_data_param().num_stages();
+			for (int s = 0; s < ns; ++s)
+				top_label[item_id * ns + s] = lines_[lines_id_].second * ns + s + 1;
+		}
 		//LOG()
 
 		//next iteration
