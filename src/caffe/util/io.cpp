@@ -434,7 +434,7 @@ bool ReadSegmentRGBToDatum(const string& filename, const int label,
 
 bool ReadSegmentRGBDiffToDatum(const string& filename, const int label,
                            const vector<int> offsets, const int height, const int width, const int length, Datum* datum, bool is_color,
-                           const char* name_pattern ){
+                           const char* name_pattern, const int* channel_mean){
     cv::Mat cv_img;
     cv::Mat prev_img;
     string* datum_string;
@@ -444,7 +444,11 @@ bool ReadSegmentRGBDiffToDatum(const string& filename, const int label,
     for (int i = 0; i < offsets.size(); ++i){
         int offset = offsets[i];
         for (int file_id = 1; file_id < length + 1 + 1; ++file_id){
-            sprintf(tmp, name_pattern, file_id+offset);
+
+            if (offset == -1)
+              sprintf(tmp,name_pattern, 'x', 1);
+            else
+              sprintf(tmp, name_pattern, file_id+offset);
             string filename_t = filename + "/" + tmp;
             cv::Mat cv_img_origin = cv::imread(filename_t, cv_read_flag);
             if (!cv_img_origin.data){
@@ -473,18 +477,28 @@ bool ReadSegmentRGBDiffToDatum(const string& filename, const int label,
                             for (int w = 0; w < cv_img.cols; ++w) {
 
                                 // we wrap the diff data to [0, 255] centered at 128
-                                float diff_val = (static_cast<float>(cv_img.at<cv::Vec3b>(h, w)[c])
-                                                 - static_cast<float>(prev_img.at<cv::Vec3b>(h, w)[c])) / 2 + 128;
-                                datum_string->push_back(static_cast<char>(diff_val));
+                                if (offset==-1)
+                                  datum_string->push_back(
+                                      static_cast<char>((channel_mean)?channel_mean[0]:128));
+                                else {
+                                  float diff_val = (static_cast<float>(cv_img.at<cv::Vec3b>(h, w)[c])
+                                      - static_cast<float>(prev_img.at<cv::Vec3b>(h, w)[c])) / 2 + 128;
+                                  datum_string->push_back(static_cast<char>(diff_val));
+                                }
                             }
                         }
                     }
                 } else {  // Faster than repeatedly testing is_color for each pixel w/i loop
                     for (int h = 0; h < cv_img.rows; ++h) {
                         for (int w = 0; w < cv_img.cols; ++w) {
-                            float diff_val = (static_cast<float>(static_cast<char>(cv_img.at<uchar>(h, w)))
-                                              - static_cast<float>(static_cast<char>(cv_img.at<uchar>(h, w)))) / 2 + 128;
-                            datum_string->push_back(static_cast<char>(diff_val));
+                            if (offset==-1)
+                              datum_string->push_back(
+                                  static_cast<char>((channel_mean)?channel_mean[0]:128));
+                            else {
+                              float diff_val = (static_cast<float>(static_cast<char>(cv_img.at<uchar>(h, w)))
+                                  - static_cast<float>(static_cast<char>(cv_img.at<uchar>(h, w)))) / 2 + 128;
+                              datum_string->push_back(static_cast<char>(diff_val));
+                            }
                         }
                     }
                 }
@@ -497,14 +511,17 @@ bool ReadSegmentRGBDiffToDatum(const string& filename, const int label,
 
 bool ReadSegmentFlowToDatum(const string& filename, const int label,
     const vector<int> offsets, const int height, const int width, const int length, Datum* datum,
-    const char* name_pattern ){
+    const char* name_pattern, const int* channel_mean ){
 	cv::Mat cv_img_x, cv_img_y;
 	string* datum_string;
 	char tmp[30];
 	for (int i = 0; i < offsets.size(); ++i){
 		int offset = offsets[i];
 		for (int file_id = 1; file_id < length+1; ++file_id){
-			sprintf(tmp,name_pattern, 'x', int(file_id+offset));
+            if (offset == -1)
+			  sprintf(tmp,name_pattern, 'x', 1);
+            else
+              sprintf(tmp,name_pattern, 'x', int(file_id+offset));
 			string filename_x = filename + "/" + tmp;
 			cv::Mat cv_img_origin_x = cv::imread(filename_x, CV_LOAD_IMAGE_GRAYSCALE);
 			sprintf(tmp, name_pattern, 'y', int(file_id+offset));
@@ -533,12 +550,20 @@ bool ReadSegmentFlowToDatum(const string& filename, const int label,
 			}
 			for (int h = 0; h < cv_img_x.rows; ++h){
 				for (int w = 0; w < cv_img_x.cols; ++w){
-					datum_string->push_back(static_cast<char>(cv_img_x.at<uchar>(h,w)));
+                    if (offset==-1)
+                      datum_string->push_back(
+                          static_cast<char>((channel_mean)?channel_mean[0]:128));
+                    else
+					  datum_string->push_back(static_cast<char>(cv_img_x.at<uchar>(h,w)));
 				}
 			}
 			for (int h = 0; h < cv_img_y.rows; ++h){
 				for (int w = 0; w < cv_img_y.cols; ++w){
-					datum_string->push_back(static_cast<char>(cv_img_y.at<uchar>(h,w)));
+                    if (offset==-1)
+                      datum_string->push_back(
+                          static_cast<char>((channel_mean)?channel_mean[0]:128));
+                    else
+					  datum_string->push_back(static_cast<char>(cv_img_y.at<uchar>(h,w)));
 				}
 			}
 		}

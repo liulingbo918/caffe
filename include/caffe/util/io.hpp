@@ -99,7 +99,8 @@ bool ReadSegDataToDatum(const string& img_filename, const string& label_filename
                         Datum* datum_data, Datum* datum_label, bool is_color);
 
 bool ReadSegmentFlowToDatum(const string& filename, const int label,
-    const vector<int> offsets, const int height, const int width, const int length, Datum* datum, const char* name_pattern);
+    const vector<int> offsets, const int height, const int width, const int length, Datum* datum, const char* name_pattern,
+    const int* channel_mean=NULL);
 
 bool ReadSegmentRGBToDatum(const string& filename, const int label,
     const vector<int> offsets, const int height, const int width, const int length, Datum* datum, bool is_color,
@@ -107,7 +108,7 @@ bool ReadSegmentRGBToDatum(const string& filename, const int label,
 
 bool ReadSegmentRGBDiffToDatum(const string& filename, const int label,
                            const vector<int> offsets, const int height, const int width, const int length, Datum* datum, bool is_color,
-                           const char* name_pattern);
+                           const char* name_pattern, const int* channel_mean=NULL);
 
 inline bool ReadImageToDatum(const string& filename, const int label,
     const int height, const int width, const bool is_color, Datum* datum) {
