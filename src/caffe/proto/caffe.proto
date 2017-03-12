@@ -379,6 +379,7 @@ message LayerParameter {
   optional VideoWindowDataParameter video_window_data_param = 163;
   optional TROIPoolingParameter troi_pooling_param = 164;
   optional PermuteParameter permute_param = 165;
+  optional PSROIPoolingParameter psroi_pooling_param = 167;
 }
 
 // Message that stores parameters used to apply transformation
@@ -1429,4 +1430,10 @@ message VideoWindowDataParameter {
 
 message PermuteParameter {
   repeated int32 axis = 1;
+}
+
+message PSROIPoolingParameter {
+  required float spatial_scale = 1;
+  required int32 output_dim = 2;
+  required int32 group_size = 3;
 }

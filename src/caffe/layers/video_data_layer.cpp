@@ -125,6 +125,11 @@ void VideoDataLayer<Dtype>::InternalThreadEntry(){
 	const int lines_size = lines_.size();
 
         bool is_color = !this->layer_param_.video_data_param().grayscale();
+
+	vector<int> image_mean;
+	image_mean.reserve(this->layer_param_.transform_param().mean_value_size());
+	for (int i = 0; i < this->layer_param_.transform_param().mean_value_size(); ++i)
+		image_mean.push_back((int)this->layer_param_.transform_param().mean_value(i));
 	for (int item_id = 0; item_id < batch_size; ++item_id){
 		CHECK_GT(lines_size, lines_id_);
 		vector<int> offsets;
@@ -152,7 +157,8 @@ void VideoDataLayer<Dtype>::InternalThreadEntry(){
 			}
 		} else{
 			if(!ReadSegmentRGBToDatum(lines_[lines_id_].first, lines_[lines_id_].second,
-									  offsets, new_height, new_width, new_length, &datum, is_color, name_pattern_.c_str())) {
+									  offsets, new_height, new_width, new_length, &datum, is_color, name_pattern_.c_str(),
+									  &image_mean[0])) {
 				continue;
 			}
 		}

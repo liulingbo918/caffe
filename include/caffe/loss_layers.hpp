@@ -11,7 +11,9 @@
 #include "caffe/neuron_layers.hpp"
 #include "caffe/proto/caffe.pb.h"
 
+#ifdef WITH_CTC
 #include "ctc.h"
+#endif
 
 namespace caffe {
 

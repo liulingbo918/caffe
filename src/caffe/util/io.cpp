@@ -367,7 +367,7 @@ bool ReadSegDataToDatum(const string& img_filename, const string& label_filename
 
 bool ReadSegmentRGBToDatum(const string& filename, const int label,
     const vector<int> offsets, const int height, const int width, const int length, Datum* datum, bool is_color,
-    const char* name_pattern ){
+    const char* name_pattern, const int* channel_mean ){
 	cv::Mat cv_img;
 	string* datum_string;
 	char tmp[30];
@@ -407,7 +407,7 @@ bool ReadSegmentRGBToDatum(const string& filename, const int label,
 			        for (int w = 0; w < cv_img.cols; ++w) {
                                   if (offset==-1)
 			            datum_string->push_back(
-			                static_cast<char>(0));
+                            static_cast<char>((channel_mean)?channel_mean[c]:128));
                                   else
 			            datum_string->push_back(
 			                static_cast<char>(cv_img.at<cv::Vec3b>(h, w)[c]));
@@ -418,8 +418,8 @@ bool ReadSegmentRGBToDatum(const string& filename, const int label,
 			    for (int h = 0; h < cv_img.rows; ++h) {
 			      for (int w = 0; w < cv_img.cols; ++w) {
                                   if (offset==-1)
-			            datum_string->push_back(
-			              static_cast<char>(0));
+                                    datum_string->push_back(
+                                        static_cast<char>((channel_mean)?channel_mean[0]:128));
                                   else
 			            datum_string->push_back(
 			              static_cast<char>(cv_img.at<uchar>(h, w)));

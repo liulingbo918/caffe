@@ -103,7 +103,7 @@ bool ReadSegmentFlowToDatum(const string& filename, const int label,
 
 bool ReadSegmentRGBToDatum(const string& filename, const int label,
     const vector<int> offsets, const int height, const int width, const int length, Datum* datum, bool is_color,
-                           const char* name_pattern);
+                           const char* name_pattern, const int* channel_mean = NULL);
 
 bool ReadSegmentRGBDiffToDatum(const string& filename, const int label,
                            const vector<int> offsets, const int height, const int width, const int length, Datum* datum, bool is_color,

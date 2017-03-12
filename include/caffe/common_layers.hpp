@@ -1033,6 +1033,8 @@ protected:
     vector<int> ticks_;
     int max_tick_;
 
+    int stage_;
+
     Blob<Dtype> argsort_idx_;
 };
 
