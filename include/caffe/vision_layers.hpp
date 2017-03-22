@@ -707,6 +707,8 @@ class PSROIPoolingLayer : public Layer<Dtype> {
 
   int pooled_length_;
   Blob<int> mapping_channel_;
+
+  bool pad_zero_;
 };
 
 }  // namespace caffe

@@ -277,6 +277,7 @@ void VideoWindowDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bot
           output_completeness_pad_ = true;
       } else {
           vector<int> label_shape(1, batch_size);
+          if (this->layer_param_.video_window_data_param().output_pad_size()) label_shape.push_back(3);
           top[1]->Reshape(label_shape);
           this->prefetch_label_.Reshape(label_shape);
           output_reg_targets_ = false;
@@ -686,7 +687,8 @@ void VideoWindowDataLayer<Dtype>::InternalThreadEntry(){
             int label_step = 1
                              + ((this->output_reg_targets_) ?  2 : 0)
                              + ((this->output_completeness_) ? 1 : 0)
-                             + ((this->output_completeness_pad_) ? 3 : 0);
+                             + ((this->output_completeness_pad_) ? 3 : 0)
+                             + ((this->layer_param_.video_window_data_param().output_pad_size() ? 2 : 0));
             int label_offset = 0;
             top_label[item_id * label_step + label_offset++] = label;
             if (this->output_reg_targets_){
@@ -700,6 +702,16 @@ void VideoWindowDataLayer<Dtype>::InternalThreadEntry(){
                 top_label[item_id * label_step + label_offset++] = completeness;
                 top_label[item_id * label_step + label_offset++] = pad_ante;
                 top_label[item_id * label_step + label_offset++] = pad_post;
+            }
+            if (this->layer_param_.video_window_data_param().output_pad_size()){
+                int pad_left = 0;
+                int pad_right = 0;
+                for (int p = 0; p < num_segments_side; ++p){
+                    if (offsets[p] == -1) pad_left++;
+                    if (offsets[num_segments + 2 * num_segments_side - p - 1] == -1) pad_right++;
+                    top_label[item_id * label_step + label_offset++] = pad_left;
+                    top_label[item_id * label_step + label_offset++] = pad_right;
+                }
             }
             item_id++;
 

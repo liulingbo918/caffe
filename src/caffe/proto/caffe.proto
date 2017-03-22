@@ -1426,6 +1426,8 @@ message VideoWindowDataParameter {
   
   optional bool use_entire_video = 27;
   optional uint32 num_roi_per_video = 28;
+
+  optional bool output_pad_size = 29 [default=false];
 }
 
 message PermuteParameter {

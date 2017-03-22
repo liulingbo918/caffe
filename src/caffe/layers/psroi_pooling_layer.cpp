@@ -34,6 +34,8 @@ namespace caffe {
     output_dim_ = psroi_pooling_param.output_dim();
     group_size_ = psroi_pooling_param.group_size();
     pooled_length_ = group_size_;
+
+    pad_zero_ = bottom.size() == 2;
   }
 
   template <typename Dtype>
