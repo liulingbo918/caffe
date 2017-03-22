@@ -95,6 +95,18 @@ namespace caffe {
       output_dim_, group_size_,
       top_data, mapping_channel_ptr, pad_data);
     CUDA_POST_KERNEL_CHECK;
+
+    // debug
+#if 0
+    const Dtype* out_data = top[0]->cpu_data();
+    const Dtype* in_data = bottom[0]->cpu_data();
+    for (int i = 0; i < bottom[0]->count(1); ++i)
+      LOG(INFO)<<i<<" "<<in_data[i];
+    LOG(INFO)<<"in done";
+    for (int i = 0; i < top[0]->count(1); ++i)
+      LOG(INFO)<<i<<" "<<out_data[i];
+    LOG(INFO)<<"done";
+#endif
   }
 
   template <typename Dtype>

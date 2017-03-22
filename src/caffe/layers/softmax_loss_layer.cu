@@ -30,6 +30,11 @@ __global__ void SoftmaxLossForwardGPU(const int nthreads,
 }
 
 template <typename Dtype>
+bool comparator (const std::pair<Dtype, int>& left, const std::pair<Dtype, int>& right){
+  return left.first >= right.first; //descending order
+}
+
+template <typename Dtype>
 void SoftmaxWithLossLayer<Dtype>::Forward_gpu(
     const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top) {
   softmax_layer_->Forward(softmax_bottom_vec_, softmax_top_vec_);
@@ -50,6 +55,14 @@ void SoftmaxWithLossLayer<Dtype>::Forward_gpu(
       outer_num_, dim, inner_num_, has_ignore_label_, ignore_label_, counts);
   Dtype loss;
   caffe_gpu_asum(nthreads, loss_data, &loss);
+
+  if (ohem_num_ > 0 ){
+    const Dtype* loss_cpu = bottom[0]->cpu_diff();
+    ohem_buffer_.resize(nthreads);
+    for (int i = 0; i < ohem_range_; ++i){
+      ohem_buffer_[i] = std::make_pair(loss_cpu[i], i);
+    }
+  }
   if (normalize_) {
     Dtype count;
     caffe_gpu_asum(nthreads, counts, &count);
@@ -90,6 +103,7 @@ __global__ void SoftmaxLossBackwardGPU(const int nthreads, const Dtype* top,
 template <typename Dtype>
 void SoftmaxWithLossLayer<Dtype>::Backward_gpu(const vector<Blob<Dtype>*>& top,
     const vector<bool>& propagate_down, const vector<Blob<Dtype>*>& bottom) {
+
   if (propagate_down[1]) {
     LOG(FATAL) << this->type()
                << " Layer cannot backpropagate to label inputs.";
@@ -109,10 +123,28 @@ void SoftmaxWithLossLayer<Dtype>::Backward_gpu(const vector<Blob<Dtype>*>& top,
     SoftmaxLossBackwardGPU<Dtype><<<CAFFE_GET_BLOCKS(nthreads),
         CAFFE_CUDA_NUM_THREADS>>>(nthreads, top_data, label, bottom_diff,
         outer_num_, dim, inner_num_, has_ignore_label_, ignore_label_, counts);
+
+    if (ohem_num_ > 0){
+      std::sort(ohem_buffer_.begin(), ohem_buffer_.end(), comparator<Dtype>);
+      int psize = prob_.shape(softmax_axis_);
+      Dtype* bottom_diff_cpu = bottom[0]->mutable_cpu_diff();
+      for (int p = ohem_num_; p < ohem_buffer_.size(); ++p){
+        int loc = ohem_buffer_[p].second;
+        int op = loc / inner_num_;
+        int ip = loc % inner_num_;
+
+        Dtype* ptr = bottom_diff_cpu + op * psize * inner_num_ + ip;
+        for (int x = 0; x < psize; ++x){
+          ptr[x*inner_num_] = 0;
+        }
+      }
+      bottom[0]->gpu_diff(); //synchronize
+    }
     const Dtype loss_weight = top[0]->cpu_diff()[0];
     if (normalize_) {
       Dtype count;
       caffe_gpu_asum(nthreads, counts, &count);
+      if (ohem_num_ > 0) count = ohem_num_ + outer_num_ * inner_num_ - ohem_range_;
       caffe_gpu_scal(prob_.count(), loss_weight / count, bottom_diff);
     } else {
       caffe_gpu_scal(prob_.count(), loss_weight / outer_num_, bottom_diff);

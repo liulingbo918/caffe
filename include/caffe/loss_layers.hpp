@@ -820,6 +820,11 @@ class SoftmaxWithLossLayer : public LossLayer<Dtype> {
   bool normalize_;
 
   int softmax_axis_, outer_num_, inner_num_;
+
+  int ohem_num_;
+  int ohem_range_;
+
+  vector<std::pair<Dtype, int> > ohem_buffer_;
 };
 
 template <typename Dtype>
